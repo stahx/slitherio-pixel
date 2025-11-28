@@ -1,5 +1,12 @@
-const Player = require('./Player');
-const Point = require('./Point');
+import Player from './Player.js';
+import Point from './Point.js';
+
+import {
+	getRandomPosition,
+	getRandomSize,
+	getRandomColor,
+	calculatePlayerNewSize,
+} from '../helpers/index.js';
 
 class GameServer {
 	constructor(io, config) {
@@ -13,13 +20,15 @@ class GameServer {
 
 		this.io.on('connection', (socket) => {
 			socket.on('player-join', (data) => {
-
-				const playerExists = this.players.filter(el => el.id == socket.id)[0]
-				if(playerExists){
-					return
+				const playerExists = this.players.filter((el) => el.id == socket.id)[0];
+				if (playerExists) {
+					return;
 				}
 
-				const position = this.#getRandomPosition();
+				const position = getRandomPosition(
+					this.config.MAP_WIDTH,
+					this.config.MAP_HEIGHT
+				);
 
 				this.players.push(
 					new Player(
@@ -27,7 +36,7 @@ class GameServer {
 						position.x,
 						position.y,
 						data.name.slice(0, 15),
-						this.#getRandomColor()
+						getRandomColor()
 					)
 				);
 
@@ -60,7 +69,7 @@ class GameServer {
 
 	start() {
 		this.#mainLoop();
-		this.#generatePoints(this.config.pointsInitAmount);
+		this.#generatePoints(this.config.POINTS_AMOUNT);
 
 		this.running = true;
 	}
@@ -68,7 +77,6 @@ class GameServer {
 	#mainLoop() {
 		setInterval(() => {
 			for (const player of this.players) {
-				//* move
 				player.diffX = player.mouseX - player.x;
 				player.diffY = player.mouseY - player.y;
 
@@ -76,31 +84,33 @@ class GameServer {
 					player.diffX * player.diffX + player.diffY * player.diffY
 				);
 
-				player.diffX *= 1 / pointDist;
-				player.diffY *= 1 / pointDist;
+				if (pointDist > 0) {
+					player.diffX *= 1 / pointDist;
+					player.diffY *= 1 / pointDist;
+				}
 
 				const moveX = player.speed
-					? player.diffX * this.config.boostSpeed
-					: player.diffX * this.config.normalSpeed;
+					? player.diffX * this.config.BOOST_SPEED
+					: player.diffX * this.config.NORMAL_SPEED;
 				const moveY = player.speed
-					? player.diffY * this.config.boostSpeed
-					: player.diffY * this.config.normalSpeed;
+					? player.diffY * this.config.BOOST_SPEED
+					: player.diffY * this.config.NORMAL_SPEED;
 
 				player.x += moveX;
 				player.y += moveY;
 
-				if(player.x >= this.config.mapWidth){
+				if (player.x >= this.config.MAP_WIDTH) {
 					player.x = 0;
 				}
-				if(player.x < 0){
-					player.x = this.config.mapWidth;
+				if (player.x < 0) {
+					player.x = this.config.MAP_WIDTH;
 				}
 
-				if(player.y >= this.config.mapHeight){
+				if (player.y >= this.config.MAP_HEIGHT) {
 					player.y = 0;
 				}
-				if(player.y < 0){
-					player.y = this.config.mapHeight;
+				if (player.y < 0) {
+					player.y = this.config.MAP_HEIGHT;
 				}
 
 				player.mouseX += moveX;
@@ -110,7 +120,7 @@ class GameServer {
 					player.tail.push({
 						x: player.x,
 						y: player.y,
-						color: this.#getRandomColor(),
+						color: getRandomColor(),
 					});
 				}
 
@@ -118,7 +128,7 @@ class GameServer {
 					player.tail.shift();
 				}
 
-				//* pick points detect
+				//* pick points
 				for (const point of this.points) {
 					if (
 						(player.x >= point.x || player.x + player.size >= point.x) &&
@@ -130,7 +140,7 @@ class GameServer {
 					}
 				}
 
-				//* touch other player tail detect
+				//* touch other player tail
 				for (const player2 of this.players) {
 					if (player.id != player2.id) {
 						for (const tailPart of player2.tail) {
@@ -148,17 +158,10 @@ class GameServer {
 					}
 				}
 
-				player.size = this.#calculatePlayerSize(player);
+				player.size = calculatePlayerNewSize(player);
 			}
 			this.#emitUpdate();
-		}, 5);
-	}
-
-	#emitUpdate() {
-		this.io.emit('update', {
-			players: this.players,
-			points: this.points,
-		});
+		}, 1000 / this.config.TICK_RATE);
 	}
 
 	#killPlayer(player) {
@@ -168,8 +171,8 @@ class GameServer {
 		for (const point of tail) {
 			this.#generatePoint(point.x, point.y);
 		}
-		
-		this.io.to(player.id).emit('ded')
+
+		this.io.to(player.id).emit('ded');
 		this.players = this.players.filter((el) => el.id != player.id);
 	}
 
@@ -177,7 +180,6 @@ class GameServer {
 		this.points = this.points.filter((el) => el != point);
 		player.points++;
 		this.#generatePoint();
-		this.#emitUpdate();
 	}
 
 	#generatePoints(amount) {
@@ -187,42 +189,32 @@ class GameServer {
 	}
 
 	#generatePoint(x, y) {
-		const position = x && y ? { x, y } : this.#getRandomPosition();
-		const size = this.#getRandomSize();
-		this.points.push(
-			new Point(position.x, position.y, size, this.#getRandomPointColor())
-		);
+		const position =
+			x && y
+				? { x, y }
+				: getRandomPosition(this.config.MAP_WIDTH, this.config.MAP_HEIGHT);
+		const size = getRandomSize(10, 20);
+		this.points.push(new Point(position.x, position.y, size, getRandomColor()));
 	}
 
-	#getRandomPosition() {
-		const maxX = this.config.mapWidth;
-		const maxY = this.config.mapHeight;
-		return {
-			x: Math.floor(Math.random() * (0 - maxX) + maxX),
-			y: Math.floor(Math.random() * (0 - maxY) + maxY),
-		};
-	}
-
-	#calculatePlayerSize(player) {
-		return player.size < 49 ? (player.points < 10 ? 10 : player.points) * 1.05 : player.size;
-	}
-
-	#getRandomSize() {
-		const min = 10;
-		const max = 20;
-
-		return Math.floor(Math.random() * (min - max) + max);
-	}
-
-	// todo
-	#getRandomColor() {
-		const colors = ['#00e500', '#00cc00', '#00b200', '#009900', '#007f00'];
-		return colors[Math.floor(Math.random() * colors.length)];
-	}
-
-	#getRandomPointColor() {
-		return `#${Math.floor(Math.random() * 16777215).toString(16)}`;
+	#emitUpdate() {
+		this.io.emit('update', {
+			players: this.players.map((el) => ({
+				id: el.id,
+				x: el.x,
+				y: el.y,
+				size: el.size,
+				tail: el.tail.map((el) => ({
+					x: el.x,
+					y: el.y,
+					color: el.color,
+				})),
+				points: el.points,
+				color: el.color,
+			})),
+			points: this.points,
+		});
 	}
 }
 
-module.exports = GameServer;
+export default GameServer;

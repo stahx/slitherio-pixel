@@ -2,16 +2,28 @@
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<link rel="stylesheet" href="style.css" />
-		<!-- <script src="https://cdn.tailwindcss.com"></script> -->
-		<title>Slitherio xdddd</title>
+		<meta
+			http-equiv="X-UA-Compatible"
+			content="IE=edge"
+		/>
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0"
+		/>
+		<link
+			rel="stylesheet"
+			href="style.css"
+		/>
+		<title>Pixel Snake</title>
 	</head>
 	<body>
 		<div id="loading">Ładowanie...</div>
 		<div id="menu">
-			<input id="name-input" type="text" placeholder="Nick" />
+			<input
+				id="name-input"
+				type="text"
+				placeholder="Nick"
+			/>
 			<button onclick="game.start(document.querySelector('#name-input').value)">
 				Play
 			</button>
@@ -29,9 +41,7 @@
 			<div id="player-name-floating"></div>
 			<div id="deathscreen">
 				<div>
-					<div>
-						Nie żyjesz
-					</div>
+					<div>Nie żyjesz</div>
 					<div>
 						<button onclick="window.location.reload()">Reset</button>
 						<!-- <button onclick="restart()">Graj od nowa</button> -->
@@ -39,7 +49,6 @@
 				</div>
 			</div>
 		</div>
-
 	</body>
 </html>
 
@@ -49,10 +58,10 @@
 
 <script>
 	const game = new Game();
-	
-	function restart(){
-		game.start(document.querySelector('#name-input').value)
-		document.querySelector('#deathscreen').style.display = 'none'
+
+	function restart() {
+		game.start(document.querySelector('#name-input').value);
+		document.querySelector('#deathscreen').style.display = 'none';
 	}
 	// game.start();
 </script>
