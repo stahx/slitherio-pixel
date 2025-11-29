@@ -1,12 +1,15 @@
-class Game {
+class GameClient {
   constructor() {
-    this.speedMusic = new Audio('./assets/pixel-jump.mp3');
+    this.speedMusic = new Audio('../assets/pixel-jump.mp3');
+    this.soundMusic = new Audio('../assets/pixel-song.mp3');
+    this.soundButton = document.querySelector('#sound-button');
     this.loading = document.querySelector('#loading');
     this.game = document.querySelector('#game');
     this.menu = document.querySelector('#menu');
     this.playerPoints = document.querySelector('#points-amount');
     this.name = document.querySelector('#player-name');
-    this.leaderBoard = document.querySelector('#leaderboard');
+    this.leaderboard = document.querySelector('#leaderboard');
+    this.leaderboardContent = document.querySelector('#leaderboard-content');
     this.canvas = document.querySelector('#canvas');
     this.ctx = this.canvas.getContext('2d');
 
@@ -70,7 +73,7 @@ class Game {
 
     this.loading.style.display = 'none';
     this.menu.style.display = 'none';
-    this.leaderBoard.style.display = 'block';
+    this.leaderboard.style.display = 'block';
     this.game.style.display = 'block';
   }
 
@@ -120,17 +123,21 @@ class Game {
 
   #updateUI() {
     let htmlString = ``;
-    for (const [index, player] of this.players
+
+    const topPlayers = this.players
       .sort((a, b) => b.points - a.points)
-      .entries()) {
-      const elements = this.leaderBoard.getElementsByTagName('*');
-      if (elements.length < 9) {
+      .slice(0, 10)
+      .entries();
+
+    for (const [index, player] of topPlayers) {
+      const elements = this.leaderboardContent.getElementsByTagName('*');
+      if (elements.length < 11) {
         htmlString += `<div><b>${index + 1}.</b> ${player.name || 'Brak'}: ${
           player.points
         }</div>`;
       }
     }
-    this.leaderBoard.innerHTML = htmlString;
+    this.leaderboardContent.innerHTML = htmlString;
 
     if (this.player) {
       this.playerPoints.innerHTML = this.player.points || 0;
@@ -164,5 +171,29 @@ class Game {
     } else {
       return this.#loadData();
     }
+  }
+
+  async toggleMusic() {
+    if (this.soundButton.classList.contains('sound-enabled')) {
+      this.soundButton.classList.remove('sound-enabled');
+      this.soundButton.classList.add('sound-disabled');
+      this.#pauseSound();
+    } else {
+      this.soundButton.classList.remove('sound-disabled');
+      this.soundButton.classList.add('sound-enabled');
+      this.#playSound();
+    }
+  }
+
+  async #pauseSound() {
+    this.soundMusic.pause();
+  }
+
+  async #playSound() {
+    this.soundMusic.currentTime = 0;
+    this.soundMusic.loop = true;
+    this.soundMusic.volume = 0.1;
+    this.soundMusic.muted = false;
+    this.soundMusic.play();
   }
 }

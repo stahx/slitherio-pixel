@@ -1,13 +1,16 @@
 {
-	"name": "@slitherio-pixel/frontend",
-	"type": "module",
-	"private": true,
-	"scripts": {
-		"dev": "tailwindcss -i ./style.css -o ./dist/output.css --watch",
-		"build": "tailwindcss -i ./style.css -o ./dist/output.css --minify",
-		"build:css": "tailwindcss -i ./style.css -o ./dist/output.css"
-	},
-	"devDependencies": {
-		"tailwindcss": "^3.4.1"
-	}
+  "name": "@slitherio-pixel/frontend",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "tailwindcss -i ./src/style.css -o ./src/output.css --watch",
+    "build": "tailwindcss -i ./src/style.css -o ./src/output.css --minify",
+    "build:css": "tailwindcss -i ./src/style.css -o ./src/output.css"
+  },
+  "dependencies": {
+    "vue": "^3.5.25"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.1"
+  }
 }

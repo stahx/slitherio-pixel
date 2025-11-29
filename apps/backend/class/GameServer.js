@@ -195,7 +195,16 @@ class GameServer {
     this.points.push(new Point(position.x, position.y, size, getRandomColor()));
   }
 
-  #emitUpdate() {
+  #getLeaderboard() {
+    return this.players
+      .sort((a, b) => b.points - a.points)
+      .slice(0, 10)
+      .map((el) => {
+        return { name: el.name, points: el.points };
+      });
+  }
+
+  #emitUpdate(playerUpdates, pointUpdates) {
     for (const player of this.players) {
       const playerX = player.x;
       const playerY = player.y;
@@ -237,6 +246,7 @@ class GameServer {
 
       this.io.to(player.id).emit('update', {
         players: visiblePlayers,
+        leaderboard: this.#getLeaderboard(),
         points: visiblePoints,
       });
     }
