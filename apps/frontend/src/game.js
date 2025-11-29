@@ -1,5 +1,6 @@
 class Game {
   constructor() {
+    this.speedMusic = new Audio('./assets/pixel-jump.mp3');
     this.loading = document.querySelector('#loading');
     this.game = document.querySelector('#game');
     this.menu = document.querySelector('#menu');
@@ -20,6 +21,8 @@ class Game {
 
     this.canvas.width = 1920;
     this.canvas.height = 1080;
+
+    this.isSpaceHeld = false;
   }
 
   async start(playerName) {
@@ -39,13 +42,17 @@ class Game {
     });
 
     document.addEventListener('keydown', (e) => {
-      if (e.keyCode == 32) {
+      if (e.keyCode == 32 && !this.isSpaceHeld) {
+        this.isSpaceHeld = true;
+        this.speedMusic.currentTime = 0;
+        this.speedMusic.play();
         this.socket.emit('player-speed', true);
       }
     });
 
     document.addEventListener('keyup', (e) => {
       if (e.keyCode == 32) {
+        this.isSpaceHeld = false;
         this.socket.emit('player-speed', false);
       }
     });
@@ -88,8 +95,8 @@ class Game {
       this.ctx.fillRect(player.x, player.y, player.size, player.size);
 
       for (const tailpart of player.tail) {
-        this.ctx.fillStyle = tailpart.color;
-        this.ctx.fillRect(tailpart.x, tailpart.y, player.size, player.size);
+        this.ctx.fillStyle = player.color;
+        this.ctx.fillRect(tailpart[0], tailpart[1], player.size, player.size);
       }
     }
 
@@ -112,7 +119,6 @@ class Game {
   }
 
   #updateUI() {
-    //* update leaderBoard
     let htmlString = ``;
     for (const [index, player] of this.players
       .sort((a, b) => b.points - a.points)

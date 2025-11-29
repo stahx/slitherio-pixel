@@ -25,10 +25,15 @@ const gameConfig = {
 	NORMAL_SPEED: 1.3,
 	BOOST_SPEED: 2.3,
 	TICK_RATE: 60,
+	FOG_RADIUS: 1000,
 };
 
 const game = new GameServer(io, gameConfig);
 game.start();
+
+app.get('/health', (req, res) => {
+	return res.status(200).send('OK');
+});
 
 app.get('/state', (req, res) => {
 	if (game.running) return res.status(200).send(true);

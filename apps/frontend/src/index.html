@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="X-UA-Compatible"
+      content="IE=edge"
+    />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <link
+      rel="stylesheet"
+      href="./dist/output.css"
+    />
+    <title>Pixel Snake</title>
+  </head>
+  <body>
+    <div id="loading">Ładowanie...</div>
+    <div id="menu">
+      <input
+        id="name-input"
+        type="text"
+        placeholder="Nick"
+      />
+      <button onclick="game.start(document.querySelector('#name-input').value)">
+        Play
+      </button>
+    </div>
+    <div id="game">
+      <div id="leaderboard"></div>
+      <div id="player-data">
+        <div id="player-name">Nick tu</div>
+        <div id="points">
+          Points:
+          <div id="points-amount">0</div>
+        </div>
+      </div>
+      <canvas id="canvas"></canvas>
+      <div id="player-name-floating"></div>
+      <div id="deathscreen">
+        <div>
+          <div>Nie żyjesz</div>
+          <div>
+            <button onclick="window.location.reload()">Reset</button>
+            <!-- <button onclick="restart()">Graj od nowa</button> -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+
+<script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.2/dist/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0/axios.min.js"></script>
+<script src="./game.js"></script>
+
+<script>
+  const game = new Game();
+  const gameMusic = new Audio('./assets/pixel-song.mp3');
+  document.addEventListener('click', () => {
+    if (gameMusic.paused) {
+      gameMusic.play();
+      gameMusic.loop = true;
+      gameMusic.volume = 0.1;
+      gameMusic.muted = false;
+    }
+  });
+
+  function restart() {
+    game.start(document.querySelector('#name-input').value);
+    document.querySelector('#deathscreen').style.display = 'none';
+  }
+  // game.start();
+</script>
