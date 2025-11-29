@@ -174,13 +174,13 @@ class GameClient {
   }
 
   async toggleMusic() {
-    if (this.soundButton.classList.contains('sound-enabled')) {
-      this.soundButton.classList.remove('sound-enabled');
-      this.soundButton.classList.add('sound-disabled');
+    if (this.soundButton.querySelector('.on').style.display === 'block') {
+      this.soundButton.querySelector('.on').style.display = 'none';
+      this.soundButton.querySelector('.off').style.display = 'block';
       this.#pauseSound();
     } else {
-      this.soundButton.classList.remove('sound-disabled');
-      this.soundButton.classList.add('sound-enabled');
+      this.soundButton.querySelector('.on').style.display = 'block';
+      this.soundButton.querySelector('.off').style.display = 'none';
       this.#playSound();
     }
   }
