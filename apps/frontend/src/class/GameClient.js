@@ -154,12 +154,9 @@ class GameClient {
     let htmlString = ``;
 
     for (const [index, player] of this.leaderboard.entries()) {
-      const elements = this.leaderboardContent.getElementsByTagName('*');
-      if (elements.length < 11) {
-        htmlString += `<div><b>${index + 1}.</b> ${player.name || 'Brak'}: ${
-          player.points
-        }</div>`;
-      }
+      htmlString += `<div><b>${index + 1}.</b> ${player.name || 'Brak'}: ${
+        player.points
+      }</div>`;
     }
     this.leaderboardContent.innerHTML = htmlString;
 
