@@ -2,13 +2,14 @@ class GameClient {
   constructor() {
     this.speedMusic = new Audio('../assets/pixel-jump.mp3');
     this.soundMusic = new Audio('../assets/pixel-song.mp3');
+
     this.soundButton = document.querySelector('#sound-button');
     this.loading = document.querySelector('#loading');
     this.game = document.querySelector('#game');
     this.menu = document.querySelector('#menu');
     this.playerPoints = document.querySelector('#points-amount');
     this.name = document.querySelector('#player-name');
-    this.leaderboard = document.querySelector('#leaderboard');
+    this.leaderboardElement = document.querySelector('#leaderboard');
     this.leaderboardContent = document.querySelector('#leaderboard-content');
     this.canvas = document.querySelector('#canvas');
     this.ctx = this.canvas.getContext('2d');
@@ -16,6 +17,7 @@ class GameClient {
     this.socket = io('');
     this.fps = 300;
 
+    this.leaderboard = [];
     this.players = [];
     this.points = [];
 
@@ -28,7 +30,6 @@ class GameClient {
     this.gameRunning = false;
     this.escMenuOpen = false;
     this.escMenu = document.querySelector('#esc-menu');
-    this.leaderboard = [];
   }
 
   async start(playerName) {
@@ -80,7 +81,7 @@ class GameClient {
 
     this.loading.style.display = 'none';
     this.menu.style.display = 'none';
-    this.leaderboard.style.display = 'block';
+    this.leaderboardElement.style.display = 'block';
     this.game.style.display = 'block';
     this.gameRunning = true;
   }
@@ -152,7 +153,7 @@ class GameClient {
   #updateUI() {
     let htmlString = ``;
 
-    for (const [index, player] of this.leaderboard) {
+    for (const [index, player] of this.leaderboard.entries()) {
       const elements = this.leaderboardContent.getElementsByTagName('*');
       if (elements.length < 11) {
         htmlString += `<div><b>${index + 1}.</b> ${player.name || 'Brak'}: ${
