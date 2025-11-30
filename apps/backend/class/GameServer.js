@@ -1,4 +1,5 @@
 import Player from './Player.js';
+import Tail from './Tail.js';
 import Point from './Point.js';
 import Config from './Config.js';
 
@@ -16,12 +17,11 @@ class GameServer {
 
     this.running = false;
 
-    this.players = [];
-    this.points = [];
+    this.entities = [];
 
     this.io.on('connection', (socket) => {
       socket.on('player-join', (data) => {
-        const playerExists = this.players.filter((el) => el.id == socket.id)[0];
+        const playerExists = this.#getPlayerEntity(socket.id);
         if (playerExists) {
           return;
         }
@@ -31,38 +31,35 @@ class GameServer {
           this.config.MAP_HEIGHT
         );
 
-        this.players.push(
-          new Player(
-            socket.id,
-            position.x,
-            position.y,
-            data.name.slice(0, 15),
-            getRandomColor()
-          )
-        );
+        const playerEntity = new Player(position.x, position.y, {
+          playerId: socket.id,
+          name: data.name.slice(0, 15),
+          color: getRandomColor(),
+          size: 10,
+          points: 0,
+        });
 
+        this.entities.push(playerEntity);
         this.#emitUpdate();
       });
 
       socket.on('player-speed', (data) => {
-        for (const player of this.players) {
-          if (player.id == socket.id) {
-            player.speed = data;
-          }
+        const player = this.#getPlayerEntity(socket.id);
+        if (player) {
+          player.speed = data;
         }
       });
 
       socket.on('change-dir', (data) => {
-        for (const player of this.players) {
-          if (player.id == socket.id) {
-            player.mouseX = data.mouseX;
-            player.mouseY = data.mouseY;
-          }
+        const player = this.#getPlayerEntity(socket.id);
+        if (player) {
+          player.mouseX = data.mouseX;
+          player.mouseY = data.mouseY;
         }
       });
 
       socket.on('disconnect', () => {
-        this.players = this.players.filter((el) => el.id != socket.id);
+        this.#removePlayerEntities(socket.id);
         this.#emitUpdate();
       });
     });
@@ -77,7 +74,9 @@ class GameServer {
 
   #mainLoop() {
     setInterval(() => {
-      for (const player of this.players) {
+      const players = this.#getPlayerEntities();
+
+      for (const player of players) {
         player.diffX = player.mouseX - player.x - player.size / 2;
         player.diffY = player.mouseY - player.y - player.size / 2;
 
@@ -122,46 +121,27 @@ class GameServer {
         }
         player.tailCounter++;
 
-        const tailLimit = player.tail.length > player.points * 3;
+        const tailEntities = this.#getTailEntities(player.playerId);
+        const tailLimit = tailEntities.length > player.points * 3;
         const shouldAddTail = player.tailCounter % 3 === 0;
 
         if (pointDist > 0 && !tailLimit && shouldAddTail) {
-          player.tail.push([player.x, player.y]);
+          const tailEntity = new Tail(player.x, player.y, {
+            playerId: player.playerId,
+            color: player.color,
+            size: player.size,
+          });
+          this.entities.push(tailEntity);
         }
 
-        if (tailLimit) {
-          player.tail.shift();
+        if (tailLimit && tailEntities.length > 0) {
+          this.entities = this.entities.filter(
+            (e) => e.id !== tailEntities[0].id
+          );
         }
 
-        //* pick points
-        for (const point of this.points) {
-          if (
-            (player.x >= point.x || player.x + player.size >= point.x) &&
-            (player.y >= point.y || player.y + player.size >= point.y) &&
-            player.x <= point.x + point.size &&
-            player.y <= point.y + point.size
-          ) {
-            this.#pickPoint(player, point);
-          }
-        }
-
-        //* touch other player tail
-        for (const player2 of this.players) {
-          if (player.id != player2.id) {
-            for (const tailPart of player2.tail) {
-              if (
-                (player.x >= tailPart[0] ||
-                  player.x + player.size >= tailPart[0]) &&
-                (player.y >= tailPart[1] ||
-                  player.y + player.size >= tailPart[1]) &&
-                player.x <= tailPart[0] + player2.size &&
-                player.y <= tailPart[1] + player2.size
-              ) {
-                this.#killPlayer(player);
-              }
-            }
-          }
-        }
+        this.#detectPointCollisions(player);
+        this.#detectTailCollisions(player);
 
         player.size = calculatePlayerNewSize(player);
       }
@@ -171,18 +151,58 @@ class GameServer {
 
   #killPlayer(player) {
     const spawnPoints = player.points;
-    const tail = player.tail.splice(0, spawnPoints);
+    const tailEntities = this.#getTailEntities(player.playerId);
+    const tailToSpawn = tailEntities.slice(0, spawnPoints);
 
-    for (const point of tail) {
-      this.#generatePoint(point[0], point[1]);
+    for (const tailEntity of tailToSpawn) {
+      this.#generatePoint(tailEntity.x, tailEntity.y);
     }
 
-    this.io.to(player.id).emit('ded');
-    this.players = this.players.filter((el) => el.id != player.id);
+    this.io.to(player.playerId).emit('ded');
+    this.#removePlayerEntities(player.playerId);
+  }
+
+  #detectPointCollisions(player) {
+    const points = this.#getPointEntities();
+
+    for (const point of points) {
+      if (
+        (player.x >= point.x || player.x + player.size >= point.x) &&
+        (player.y >= point.y || player.y + player.size >= point.y) &&
+        player.x <= point.x + point.size &&
+        player.y <= point.y + point.size
+      ) {
+        this.#pickPoint(player, point);
+        break;
+      }
+    }
+  }
+
+  #detectTailCollisions(player) {
+    const allTailEntities = this.entities.filter((e) => e.type === 'tail');
+
+    for (const tailEntity of allTailEntities) {
+      if (tailEntity.playerId === player.playerId) {
+        continue;
+      }
+
+      const tailPlayer = this.#getPlayerEntity(tailEntity.playerId);
+      if (!tailPlayer) continue;
+
+      if (
+        (player.x >= tailEntity.x || player.x + player.size >= tailEntity.x) &&
+        (player.y >= tailEntity.y || player.y + player.size >= tailEntity.y) &&
+        player.x <= tailEntity.x + tailPlayer.size &&
+        player.y <= tailEntity.y + tailPlayer.size
+      ) {
+        this.#killPlayer(player);
+        break;
+      }
+    }
   }
 
   #pickPoint(player, point) {
-    this.points = this.points.filter((el) => el != point);
+    this.entities = this.entities.filter((e) => e.id !== point.id);
     player.points++;
     this.#generatePoint();
   }
@@ -199,11 +219,43 @@ class GameServer {
         ? { x, y }
         : getRandomPosition(this.config.MAP_WIDTH, this.config.MAP_HEIGHT);
     const size = getRandomSize(10, 20);
-    this.points.push(new Point(position.x, position.y, size, getRandomColor()));
+    const pointEntity = new Point(position.x, position.y, {
+      size,
+      color: getRandomColor(),
+    });
+    this.entities.push(pointEntity);
+  }
+
+  #getPlayerEntities() {
+    return this.entities.filter((e) => e.type === 'player');
+  }
+
+  #getPlayerEntity(playerId) {
+    return this.entities.find(
+      (e) => e.type === 'player' && e.playerId === playerId
+    );
+  }
+
+  #getTailEntities(playerId) {
+    return this.entities.filter(
+      (e) => e.type === 'tail' && e.playerId === playerId
+    );
+  }
+
+  #getPointEntities() {
+    return this.entities.filter((e) => e.type === 'point');
+  }
+
+  #removePlayerEntities(playerId) {
+    this.entities = this.entities.filter(
+      (e) =>
+        !(e.type === 'player' && e.playerId === playerId) &&
+        !(e.type === 'tail' && e.playerId === playerId)
+    );
   }
 
   #getLeaderboard() {
-    return this.players
+    return this.#getPlayerEntities()
       .sort((a, b) => b.points - a.points)
       .slice(0, 10)
       .map((el) => {
@@ -211,50 +263,33 @@ class GameServer {
       });
   }
 
-  #emitUpdate(playerUpdates, pointUpdates) {
-    for (const player of this.players) {
+  #emitUpdate() {
+    const players = this.#getPlayerEntities();
+
+    for (const player of players) {
       const playerX = player.x;
       const playerY = player.y;
 
-      const visiblePlayers = this.players
-        .filter((p) => {
-          if (p.id === player.id) return true;
-          const distX = p.x - playerX;
-          const distY = p.y - playerY;
-          const distance = Math.sqrt(distX * distX + distY * distY);
-          return distance <= 1500;
-        })
-        .map((el) => {
-          return {
-            id: el.id,
-            x: el.x,
-            y: el.y,
-            size: el.size,
-            tail: el.tail.filter((t) => {
-              const tailDistX = t[0] - playerX;
-              const tailDistY = t[1] - playerY;
-              const tailDistance = Math.sqrt(
-                tailDistX * tailDistX + tailDistY * tailDistY
-              );
-              return tailDistance <= 1500;
-            }),
-            points: el.points,
-            color: el.color,
-            name: el.name,
-          };
-        });
-
-      const visiblePoints = this.points.filter((p) => {
-        const distX = p.x - playerX;
-        const distY = p.y - playerY;
+      const visibleEntities = this.entities.filter((entity) => {
+        const distX = entity.x - playerX;
+        const distY = entity.y - playerY;
         const distance = Math.sqrt(distX * distX + distY * distY);
         return distance <= 1500;
       });
 
-      this.io.to(player.id).emit('update', {
-        players: visiblePlayers,
+      this.io.to(player.playerId).emit('update', {
+        entities: visibleEntities.map((e) => ({
+          id: e.id,
+          type: e.type,
+          x: e.x,
+          y: e.y,
+          size: e.size,
+          color: e.color,
+          playerId: e.playerId,
+          name: e.name,
+          points: e.points,
+        })),
         leaderboard: this.#getLeaderboard(),
-        points: visiblePoints,
       });
     }
   }

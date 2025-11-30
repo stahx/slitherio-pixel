@@ -43,8 +43,7 @@ app.get('/state', (req, res) => {
 app.get('/game-data', (req, res) => {
   if (game.running) {
     return res.json({
-      players: game.players,
-      points: game.points,
+      entities: game.entities,
       width: game.config.MAP_WIDTH,
       height: game.config.MAP_HEIGHT,
     });

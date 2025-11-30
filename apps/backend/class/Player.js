@@ -1,21 +1,20 @@
-class Player {
-	constructor(id, x, y, name, color) {
-		this.id = id;
-		this.x = x;
-		this.y = y;
-		this.name = name;
-		this.color = color;
+import Entity from './Entity.js';
 
-		this.tail = [];
-		this.points = 0;
-		this.size = 10;
-
-		this.speed = false;
-		this.mouseX = 0;
-		this.mouseY = 0;
-		this.diffX = 0;
-		this.diffY = 0;
-	}
+class Player extends Entity {
+  constructor(x, y, options = {}) {
+    super(x, y, options);
+    this.playerId = options.playerId || this.id;
+    this.name = options.name || '';
+    this.color = options.color || '#ffffff';
+    this.size = options.size || 10;
+    this.points = options.points || 0;
+    this.speed = options.speed || false;
+    this.mouseX = options.mouseX || 0;
+    this.mouseY = options.mouseY || 0;
+    this.diffX = options.diffX || 0;
+    this.diffY = options.diffY || 0;
+    this.tailCounter = options.tailCounter || 0;
+  }
 }
 
 export default Player;

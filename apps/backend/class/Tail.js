@@ -1,11 +1,12 @@
 import Entity from './Entity.js';
 
-class Point extends Entity {
+class Tail extends Entity {
   constructor(x, y, options = {}) {
     super(x, y, options);
-    this.size = options.size || 10;
+    this.playerId = options.playerId;
     this.color = options.color || '#ffffff';
+    this.size = options.size || 10;
   }
 }
 
-export default Point;
+export default Tail;

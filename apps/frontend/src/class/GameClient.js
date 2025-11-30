@@ -18,10 +18,9 @@ class GameClient {
     this.fps = 300;
 
     this.leaderboard = [];
-    this.players = [];
-    this.points = [];
+    this.entities = [];
 
-    this.player = {};
+    this.player = null;
 
     this.canvas.width = 1920;
     this.canvas.height = 1080;
@@ -39,10 +38,11 @@ class GameClient {
 
     this.socket.on('update', (data) => {
       this.running = true;
-      this.players = data.players;
-      this.points = data.points;
-      this.player = data.players.find((el) => el.id == this.socket.id);
-      this.leaderboard = data.leaderboard;
+      this.entities = data.entities || [];
+      this.player = this.entities.find(
+        (el) => el.type === 'player' && el.playerId == this.socket.id
+      );
+      this.leaderboard = data.leaderboard || [];
     });
 
     this.socket.on('ded', () => {
@@ -68,14 +68,14 @@ class GameClient {
     });
 
     document.addEventListener('mousemove', (e) => {
-      if (this.escMenuOpen) return;
+      if (this.escMenuOpen || !this.player) return;
       const rect = this.canvas.getBoundingClientRect();
-      this.player.mouseX = e.clientX - rect.left;
-      this.player.mouseY = e.clientY - rect.top;
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
 
       this.socket.emit('change-dir', {
-        mouseX: this.player.mouseX,
-        mouseY: this.player.mouseY,
+        mouseX: mouseX,
+        mouseY: mouseY,
       });
     });
 
@@ -98,37 +98,37 @@ class GameClient {
 
   #renderFrame() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    for (const point of this.points) {
-      this.ctx.fillStyle = point.color;
-      this.ctx.fillRect(point.x, point.y, point.size, point.size);
-    }
-    for (const player of this.players) {
-      this.ctx.fillStyle = player.color;
-      this.ctx.fillRect(player.x, player.y, player.size, player.size);
 
-      for (const tailpart of player.tail) {
-        this.ctx.fillStyle = tailpart.color;
-        this.ctx.fillRect(tailpart[0], tailpart[1], player.size, player.size);
-      }
+    for (const entity of this.entities) {
+      if (entity.type === 'point') {
+        this.ctx.fillStyle = entity.color;
+        this.ctx.fillRect(entity.x, entity.y, entity.size, entity.size);
+      } else if (entity.type === 'tail') {
+        this.ctx.fillStyle = entity.color;
+        this.ctx.fillRect(entity.x, entity.y, entity.size, entity.size);
+      } else if (entity.type === 'player') {
+        this.ctx.fillStyle = entity.color;
+        this.ctx.fillRect(entity.x, entity.y, entity.size, entity.size);
 
-      if (player.name) {
-        const fontSize = Math.max(12, player.size * 0.8);
-        const nameOffset = player.size + 8;
+        if (entity.name) {
+          const fontSize = Math.max(12, entity.size * 0.8);
+          const nameOffset = entity.size + 8;
 
-        this.ctx.save();
-        this.ctx.font = `${fontSize}px Arial`;
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'bottom';
-        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-        this.ctx.lineWidth = 2;
+          this.ctx.save();
+          this.ctx.font = `${fontSize}px Arial`;
+          this.ctx.textAlign = 'center';
+          this.ctx.textBaseline = 'bottom';
+          this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+          this.ctx.lineWidth = 2;
 
-        const textX = player.x + player.size / 2;
-        const textY = player.y - nameOffset;
+          const textX = entity.x + entity.size / 2;
+          const textY = entity.y - nameOffset;
 
-        this.ctx.strokeText(player.name, textX, textY);
-        this.ctx.fillText(player.name, textX, textY);
-        this.ctx.restore();
+          this.ctx.strokeText(entity.name, textX, textY);
+          this.ctx.fillText(entity.name, textX, textY);
+          this.ctx.restore();
+        }
       }
     }
 
@@ -173,8 +173,7 @@ class GameClient {
     const req = await axios.get('/state');
     if (req.status == 200) {
       const { data } = await axios.get('/game-data');
-      this.players = data.players;
-      this.points = data.points;
+      this.entities = data.entities || [];
       this.canvas.width = data.width;
       this.canvas.height = data.height;
       console.log('zaladowano.');
@@ -236,9 +235,8 @@ class GameClient {
     this.menu.style.display = 'flex';
     this.socket.disconnect();
     this.socket = io('');
-    this.players = [];
-    this.points = [];
-    this.player = {};
+    this.entities = [];
+    this.player = null;
     if (this.canvas) {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
