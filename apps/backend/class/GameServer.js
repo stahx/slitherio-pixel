@@ -78,8 +78,8 @@ class GameServer {
   #mainLoop() {
     setInterval(() => {
       for (const player of this.players) {
-        player.diffX = player.mouseX - player.x;
-        player.diffY = player.mouseY - player.y;
+        player.diffX = player.mouseX - player.x - player.size / 2;
+        player.diffY = player.mouseY - player.y - player.size / 2;
 
         let pointDist = Math.sqrt(
           player.diffX * player.diffX + player.diffY * player.diffY
