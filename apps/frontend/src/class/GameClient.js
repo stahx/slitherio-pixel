@@ -14,7 +14,6 @@ class GameClient {
     this.ctx = this.canvas.getContext('2d');
 
     this.socket = io('');
-
     this.fps = 300;
 
     this.players = [];
@@ -26,6 +25,9 @@ class GameClient {
     this.canvas.height = 1080;
 
     this.isSpaceHeld = false;
+    this.gameRunning = false;
+    this.escMenuOpen = false;
+    this.escMenu = document.querySelector('#esc-menu');
   }
 
   async start(playerName) {
@@ -45,6 +47,7 @@ class GameClient {
     });
 
     document.addEventListener('keydown', (e) => {
+      if (this.escMenuOpen) return;
       if (e.keyCode == 32 && !this.isSpaceHeld) {
         this.isSpaceHeld = true;
         this.speedMusic.currentTime = 0;
@@ -54,6 +57,7 @@ class GameClient {
     });
 
     document.addEventListener('keyup', (e) => {
+      if (this.escMenuOpen) return;
       if (e.keyCode == 32) {
         this.isSpaceHeld = false;
         this.socket.emit('player-speed', false);
@@ -61,6 +65,7 @@ class GameClient {
     });
 
     document.addEventListener('mousemove', (e) => {
+      if (this.escMenuOpen) return;
       const rect = this.canvas.getBoundingClientRect();
       this.player.mouseX = e.clientX - rect.left;
       this.player.mouseY = e.clientY - rect.top;
@@ -75,6 +80,7 @@ class GameClient {
     this.menu.style.display = 'none';
     this.leaderboard.style.display = 'block';
     this.game.style.display = 'block';
+    this.gameRunning = true;
   }
 
   #joinPlayer(name) {
@@ -98,8 +104,28 @@ class GameClient {
       this.ctx.fillRect(player.x, player.y, player.size, player.size);
 
       for (const tailpart of player.tail) {
-        this.ctx.fillStyle = player.color;
+        this.ctx.fillStyle = tailpart.color;
         this.ctx.fillRect(tailpart[0], tailpart[1], player.size, player.size);
+      }
+
+      if (player.name) {
+        const fontSize = Math.max(12, player.size * 0.8);
+        const nameOffset = player.size + 8;
+
+        this.ctx.save();
+        this.ctx.font = `${fontSize}px Arial`;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'bottom';
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+        this.ctx.lineWidth = 2;
+
+        const textX = player.x + player.size / 2;
+        const textY = player.y - nameOffset;
+
+        this.ctx.strokeText(player.name, textX, textY);
+        this.ctx.fillText(player.name, textX, textY);
+        this.ctx.restore();
       }
     }
 
@@ -142,16 +168,6 @@ class GameClient {
     if (this.player) {
       this.playerPoints.innerHTML = this.player.points || 0;
       this.name.innerHTML = this.player.name || 'Brak';
-
-      const windowX = window.innerWidth;
-      const windowY = window.innerHeight;
-
-      const playerName = document.querySelector('#player-name-floating');
-      if (this.player.x !== undefined && this.player.y !== undefined) {
-        playerName.style.left = `${-(this.player.x - windowX / 2)}px`;
-        playerName.style.top = `${-(this.player.y - windowY / 2)}px`;
-      }
-      playerName.innerHTML = this.player.name;
     }
 
     requestAnimationFrame(() => this.#updateUI());
@@ -195,5 +211,41 @@ class GameClient {
     this.soundMusic.volume = 0.1;
     this.soundMusic.muted = false;
     this.soundMusic.play();
+  }
+
+  isGameRunning() {
+    return this.gameRunning;
+  }
+
+  toggleEscMenu() {
+    if (!this.gameRunning) return;
+
+    this.escMenuOpen = !this.escMenuOpen;
+    if (this.escMenuOpen) {
+      this.escMenu.style.display = 'flex';
+    } else {
+      this.escMenu.style.display = 'none';
+    }
+  }
+
+  resumeGame() {
+    this.escMenuOpen = false;
+    this.escMenu.style.display = 'none';
+  }
+
+  returnToMenu() {
+    this.gameRunning = false;
+    this.escMenuOpen = false;
+    this.escMenu.style.display = 'none';
+    this.game.style.display = 'none';
+    this.menu.style.display = 'flex';
+    this.socket.disconnect();
+    this.socket = io('');
+    this.players = [];
+    this.points = [];
+    this.player = {};
+    if (this.canvas) {
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    }
   }
 }

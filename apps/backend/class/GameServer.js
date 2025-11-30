@@ -100,25 +100,32 @@ class GameServer {
         player.x += moveX;
         player.y += moveY;
 
-        if (player.x >= this.config.MAP_WIDTH) {
+        if (player.x + player.size >= this.config.MAP_WIDTH) {
           player.x = 0;
         }
         if (player.x < 0) {
-          player.x = this.config.MAP_WIDTH;
+          player.x = this.config.MAP_WIDTH - player.size;
         }
 
-        if (player.y >= this.config.MAP_HEIGHT) {
+        if (player.y + player.size >= this.config.MAP_HEIGHT) {
           player.y = 0;
         }
         if (player.y < 0) {
-          player.y = this.config.MAP_HEIGHT;
+          player.y = this.config.MAP_HEIGHT - player.size;
         }
 
         player.mouseX += moveX;
         player.mouseY += moveY;
 
-        const tailLimit = player.tail.length > player.points * 10;
-        if (player.diffX + player.diffY != 0 && !tailLimit) {
+        if (!player.tailCounter) {
+          player.tailCounter = 0;
+        }
+        player.tailCounter++;
+
+        const tailLimit = player.tail.length > player.points * 3;
+        const shouldAddTail = player.tailCounter % 3 === 0;
+
+        if (pointDist > 0 && !tailLimit && shouldAddTail) {
           player.tail.push([player.x, player.y]);
         }
 
@@ -215,7 +222,7 @@ class GameServer {
           const distX = p.x - playerX;
           const distY = p.y - playerY;
           const distance = Math.sqrt(distX * distX + distY * distY);
-          return distance <= this.config.FOG_RADIUS;
+          return distance <= 1500;
         })
         .map((el) => {
           return {
@@ -229,7 +236,7 @@ class GameServer {
               const tailDistance = Math.sqrt(
                 tailDistX * tailDistX + tailDistY * tailDistY
               );
-              return tailDistance <= this.config.FOG_RADIUS;
+              return tailDistance <= 1500;
             }),
             points: el.points,
             color: el.color,
@@ -241,7 +248,7 @@ class GameServer {
         const distX = p.x - playerX;
         const distY = p.y - playerY;
         const distance = Math.sqrt(distX * distX + distY * distY);
-        return distance <= this.config.FOG_RADIUS;
+        return distance <= 1500;
       });
 
       this.io.to(player.id).emit('update', {

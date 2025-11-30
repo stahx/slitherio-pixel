@@ -8,7 +8,7 @@
     />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <link
       rel="stylesheet"
@@ -17,7 +17,15 @@
     <title>Pixel Snake</title>
   </head>
   <body>
-    <div id="loading">Ładowanie...</div>
+    <div
+      id="loading"
+      class="loading-screen"
+    >
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div>Ładowanie...</div>
+      </div>
+    </div>
     <div
       id="sound-button"
       class="m-2 text-green fixed top-0 right-0 w-6 h-6 cursor-pointer"
@@ -47,14 +55,32 @@
       </svg>
     </div>
     <div id="menu">
-      <input
-        id="name-input"
-        type="text"
-        placeholder="Nick"
-      />
-      <button onclick="game.start(document.querySelector('#name-input').value)">
-        Play
-      </button>
+      <div class="menu-content">
+        <h1 class="menu-title">Pixel Snake</h1>
+        <input
+          id="name-input"
+          type="text"
+          placeholder="Enter your nickname"
+          class="menu-input"
+          maxlength="15"
+        />
+        <button
+          onclick="game.start(document.querySelector('#name-input').value)"
+          class="menu-button"
+        >
+          Play
+        </button>
+      </div>
+    </div>
+    <div
+      id="esc-menu"
+      style="display: none"
+    >
+      <div class="esc-menu-content">
+        <h2>Pause Menu</h2>
+        <button onclick="game.resumeGame()">Resume</button>
+        <button onclick="game.returnToMenu()">Return to Menu</button>
+      </div>
     </div>
     <div id="game">
       <div id="leaderboard">
@@ -70,10 +96,11 @@
       </div>
       <canvas id="canvas"></canvas>
       <div id="deathscreen">
-        <div>
-          <div>Nie żyjesz</div>
-          <div>
+        <div class="deathscreen-content">
+          <div class="deathscreen-title">Nie żyjesz</div>
+          <div class="deathscreen-buttons">
             <button onclick="restart()">Graj od nowa</button>
+            <button onclick="game.returnToMenu()">Return to Menu</button>
           </div>
         </div>
       </div>
@@ -92,5 +119,48 @@
     game.start(document.querySelector('#name-input').value);
     document.querySelector('#deathscreen').style.display = 'none';
   }
-  // game.start();
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && game.isGameRunning()) {
+      e.preventDefault();
+      game.toggleEscMenu();
+    }
+  });
+
+  document.addEventListener(
+    'wheel',
+    (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+      }
+    },
+    { passive: false }
+  );
+
+  document.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length > 1) {
+        e.preventDefault();
+      }
+    },
+    { passive: false }
+  );
+
+  document.addEventListener('gesturestart', (e) => {
+    e.preventDefault();
+  });
+
+  let lastTouchEnd = 0;
+  document.addEventListener(
+    'touchend',
+    (e) => {
+      const now = Date.now();
+      if (now - lastTouchEnd <= 300) {
+        e.preventDefault();
+      }
+      lastTouchEnd = now;
+    },
+    false
+  );
 </script>
