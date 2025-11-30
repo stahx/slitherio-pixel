@@ -28,6 +28,7 @@ class GameClient {
     this.gameRunning = false;
     this.escMenuOpen = false;
     this.escMenu = document.querySelector('#esc-menu');
+    this.leaderboard = [];
   }
 
   async start(playerName) {
@@ -40,6 +41,7 @@ class GameClient {
       this.players = data.players;
       this.points = data.points;
       this.player = data.players.find((el) => el.id == this.socket.id);
+      this.leaderboard = data.leaderboard;
     });
 
     this.socket.on('ded', () => {
@@ -150,12 +152,7 @@ class GameClient {
   #updateUI() {
     let htmlString = ``;
 
-    const topPlayers = this.players
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 10)
-      .entries();
-
-    for (const [index, player] of topPlayers) {
+    for (const [index, player] of this.leaderboard) {
       const elements = this.leaderboardContent.getElementsByTagName('*');
       if (elements.length < 11) {
         htmlString += `<div><b>${index + 1}.</b> ${player.name || 'Brak'}: ${
