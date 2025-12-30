@@ -15,7 +15,7 @@ export const calculatePlayerPosition = (player) => {
 };
 
 export const calculatePlayerNewSize = (player) => {
-  return player.size < 49
+  return player.size < 100
     ? (player.points < 10 ? 10 : player.points) * 1.05
     : player.size;
 };

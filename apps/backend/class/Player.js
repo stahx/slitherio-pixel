@@ -14,6 +14,7 @@ class Player extends Entity {
     this.diffX = options.diffX || 0;
     this.diffY = options.diffY || 0;
     this.tailCounter = options.tailCounter || 0;
+    this.currentAngle = options.currentAngle || Math.random() * Math.PI * 2;
   }
 }
 

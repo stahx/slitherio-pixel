@@ -62,6 +62,10 @@ class GameServer {
         this.#removePlayerEntities(socket.id);
         this.#emitUpdate();
       });
+
+      socket.on('ping-check', () => {
+        socket.emit('pong-check');
+      });
     });
   }
 
@@ -73,6 +77,8 @@ class GameServer {
   }
 
   #mainLoop() {
+    const MAX_ROTATION_SPEED = 0.08; // radians per tick - lower = slower turning
+
     setInterval(() => {
       const players = this.#getPlayerEntities();
 
@@ -84,10 +90,29 @@ class GameServer {
           player.diffX * player.diffX + player.diffY * player.diffY
         );
 
-        if (pointDist > 0) {
-          player.diffX *= 1 / pointDist;
-          player.diffY *= 1 / pointDist;
+        // Calculate target angle from mouse position
+        const targetAngle = Math.atan2(player.diffY, player.diffX);
+
+        // Calculate angle difference (shortest path)
+        let angleDiff = targetAngle - player.currentAngle;
+
+        // Normalize to -PI to PI range
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+        // Limit rotation speed
+        if (angleDiff > MAX_ROTATION_SPEED) {
+          angleDiff = MAX_ROTATION_SPEED;
+        } else if (angleDiff < -MAX_ROTATION_SPEED) {
+          angleDiff = -MAX_ROTATION_SPEED;
         }
+
+        // Apply limited rotation
+        player.currentAngle += angleDiff;
+
+        // Use the limited angle for movement direction
+        player.diffX = Math.cos(player.currentAngle);
+        player.diffY = Math.sin(player.currentAngle);
 
         const moveX = player.speed
           ? player.diffX * this.config.BOOST_SPEED
@@ -122,8 +147,8 @@ class GameServer {
         player.tailCounter++;
 
         const tailEntities = this.#getTailEntities(player.playerId);
-        const tailLimit = tailEntities.length > player.points * 3;
-        const shouldAddTail = player.tailCounter % 3 === 0;
+        const tailLimit = tailEntities.length > player.points * 2;
+        const shouldAddTail = player.tailCounter % 5 === 0;
 
         if (pointDist > 0 && !tailLimit && shouldAddTail) {
           const tailEntity = new Tail(player.x, player.y, {
@@ -203,7 +228,9 @@ class GameServer {
 
   #pickPoint(player, point) {
     this.entities = this.entities.filter((e) => e.id !== point.id);
-    player.points++;
+    // Bigger points give more points (size 8 = 1pt, size 16 = 2pts, size 24 = 3pts)
+    const pointValue = Math.max(1, Math.floor(point.size / 8));
+    player.points += pointValue;
     this.#generatePoint();
   }
 
@@ -218,7 +245,7 @@ class GameServer {
       x && y
         ? { x, y }
         : getRandomPosition(this.config.MAP_WIDTH, this.config.MAP_HEIGHT);
-    const size = getRandomSize(10, 20);
+    const size = getRandomSize(8, 25);
     const pointEntity = new Point(position.x, position.y, {
       size,
       color: getRandomColor(),

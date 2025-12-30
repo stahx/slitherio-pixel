@@ -29,6 +29,15 @@ class GameClient {
     this.gameRunning = false;
     this.escMenuOpen = false;
     this.escMenu = document.querySelector('#esc-menu');
+    this.pingElement = document.querySelector('#ping-value');
+    this.ping = 0;
+
+    // Set up ping measurement immediately
+    this.socket.on('pong-check', () => {
+      this.ping = Date.now() - this.pingStart;
+      this.#updatePingDisplay();
+    });
+    this.#startPingInterval();
   }
 
   async start(playerName) {
@@ -54,6 +63,7 @@ class GameClient {
       if (e.keyCode == 32 && !this.isSpaceHeld) {
         this.isSpaceHeld = true;
         this.speedMusic.currentTime = 0;
+        this.speedMusic.volume = 0.1;
         this.speedMusic.play();
         this.socket.emit('player-speed', true);
       }
@@ -99,6 +109,9 @@ class GameClient {
   #renderFrame() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+    const players = [];
+
+    // First pass: render all entities (points, tails, player bodies)
     for (const entity of this.entities) {
       if (entity.type === 'point') {
         this.ctx.fillStyle = entity.color;
@@ -109,26 +122,30 @@ class GameClient {
       } else if (entity.type === 'player') {
         this.ctx.fillStyle = entity.color;
         this.ctx.fillRect(entity.x, entity.y, entity.size, entity.size);
+        players.push(entity);
+      }
+    }
 
-        if (entity.name) {
-          const fontSize = Math.max(12, entity.size * 0.8);
-          const nameOffset = entity.size + 8;
+    // Second pass: render nicknames ABOVE everything
+    for (const entity of players) {
+      if (entity.name) {
+        const fontSize = Math.max(12, entity.size * 0.8);
+        const nameOffset = entity.size + 8;
 
-          this.ctx.save();
-          this.ctx.font = `${fontSize}px Arial`;
-          this.ctx.textAlign = 'center';
-          this.ctx.textBaseline = 'bottom';
-          this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-          this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-          this.ctx.lineWidth = 2;
+        this.ctx.save();
+        this.ctx.font = `${fontSize}px Arial`;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'bottom';
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+        this.ctx.lineWidth = 2;
 
-          const textX = entity.x + entity.size / 2;
-          const textY = entity.y - nameOffset;
+        const textX = entity.x + entity.size / 2;
+        const textY = entity.y - nameOffset;
 
-          this.ctx.strokeText(entity.name, textX, textY);
-          this.ctx.fillText(entity.name, textX, textY);
-          this.ctx.restore();
-        }
+        this.ctx.strokeText(entity.name, textX, textY);
+        this.ctx.fillText(entity.name, textX, textY);
+        this.ctx.restore();
       }
     }
 
@@ -181,6 +198,29 @@ class GameClient {
     } else {
       return this.#loadData();
     }
+  }
+
+  #startPingInterval() {
+    setInterval(() => {
+      this.pingStart = Date.now();
+      this.socket.emit('ping-check');
+    }, 2000);
+  }
+
+  #updatePingDisplay() {
+    if (!this.pingElement) return;
+
+    let color;
+    if (this.ping < 100) {
+      color = '#22c55e'; // green
+    } else if (this.ping <= 200) {
+      color = '#eab308'; // yellow
+    } else {
+      color = '#ef4444'; // red
+    }
+
+    this.pingElement.style.color = color;
+    this.pingElement.textContent = `${this.ping} ms`;
   }
 
   async toggleMusic() {

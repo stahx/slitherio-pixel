@@ -1004,3 +1004,16 @@ body {
 .esc-menu-content button:active {
   transform: translateY(0);
 }
+
+#ping-indicator {
+  position: fixed;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+#ping-value {
+  color: #22c55e;
+}
