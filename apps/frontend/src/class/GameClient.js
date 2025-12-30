@@ -47,11 +47,26 @@ class GameClient {
 
     this.socket.on('update', (data) => {
       this.running = true;
-      this.entities = data.entities || [];
+      // Decompress compact entity format
+      const typeMap = ['point', 'tail', 'player'];
+      this.entities = (data.e || []).map((e) => ({
+        id: e.i,
+        type: typeMap[e.t],
+        x: e.x,
+        y: e.y,
+        size: e.s,
+        color: e.c,
+        playerId: e.p,
+        name: e.n,
+        points: e.pt,
+      }));
       this.player = this.entities.find(
         (el) => el.type === 'player' && el.playerId == this.socket.id
       );
-      this.leaderboard = data.leaderboard || [];
+      // Only update leaderboard if sent (sent only when changed)
+      if (data.l) {
+        this.leaderboard = data.l;
+      }
     });
 
     this.socket.on('ded', () => {

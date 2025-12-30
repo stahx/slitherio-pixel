@@ -18,6 +18,8 @@ class GameServer {
     this.running = false;
 
     this.entities = [];
+    this.lastLeaderboard = '';
+    this.updateCounter = 0;
 
     this.io.on('connection', (socket) => {
       socket.on('player-join', (data) => {
@@ -292,6 +294,18 @@ class GameServer {
 
   #emitUpdate() {
     const players = this.#getPlayerEntities();
+    this.updateCounter++;
+
+    // Only recalculate leaderboard every 10 ticks
+    let leaderboard = null;
+    if (this.updateCounter % 10 === 0) {
+      const newLeaderboard = this.#getLeaderboard();
+      const leaderboardStr = JSON.stringify(newLeaderboard);
+      if (leaderboardStr !== this.lastLeaderboard) {
+        this.lastLeaderboard = leaderboardStr;
+        leaderboard = newLeaderboard;
+      }
+    }
 
     for (const player of players) {
       const playerX = player.x;
@@ -300,24 +314,37 @@ class GameServer {
       const visibleEntities = this.entities.filter((entity) => {
         const distX = entity.x - playerX;
         const distY = entity.y - playerY;
-        const distance = Math.sqrt(distX * distX + distY * distY);
-        return distance <= 1500;
+        // Use squared distance to avoid sqrt (faster)
+        return distX * distX + distY * distY <= 2250000; // 1500^2
       });
 
-      this.io.to(player.playerId).emit('update', {
-        entities: visibleEntities.map((e) => ({
-          id: e.id,
-          type: e.type,
-          x: e.x,
-          y: e.y,
-          size: e.size,
-          color: e.color,
-          playerId: e.playerId,
-          name: e.name,
-          points: e.points,
-        })),
-        leaderboard: this.#getLeaderboard(),
+      // Compact format: t=type(0=point,1=tail,2=player), shorter keys, integers
+      const compactEntities = visibleEntities.map((e) => {
+        const base = {
+          i: e.id,
+          t: e.type === 'point' ? 0 : e.type === 'tail' ? 1 : 2,
+          x: Math.round(e.x),
+          y: Math.round(e.y),
+          s: Math.round(e.size),
+          c: e.color,
+        };
+        // Only add extra data for players
+        if (e.type === 'player') {
+          base.p = e.playerId;
+          base.n = e.name;
+          base.pt = e.points;
+        } else if (e.type === 'tail') {
+          base.p = e.playerId;
+        }
+        return base;
       });
+
+      const updateData = { e: compactEntities };
+      if (leaderboard) {
+        updateData.l = leaderboard;
+      }
+
+      this.io.to(player.playerId).emit('update', updateData);
     }
   }
 }
