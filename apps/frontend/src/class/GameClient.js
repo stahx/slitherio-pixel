@@ -1,3 +1,6 @@
+const SERVER_TICK_MS = 1000 / 60;
+const FOG_RADIUS_SQ = 1500 * 1500;
+
 class GameClient {
   constructor() {
     this.speedMusic = new Audio('../assets/pixel-jump.mp3');
@@ -15,10 +18,14 @@ class GameClient {
     this.ctx = this.canvas.getContext('2d');
 
     this.socket = io('');
-    this.fps = 300;
 
     this.leaderboard = [];
-    this.entities = [];
+
+    this.entityMap = new Map();
+
+    this.prevPositions = new Map();
+    this.targetPositions = new Map();
+    this.lastUpdateTime = performance.now();
 
     this.player = null;
 
@@ -32,7 +39,6 @@ class GameClient {
     this.pingElement = document.querySelector('#ping-value');
     this.ping = 0;
 
-    // Set up ping measurement immediately
     this.socket.on('pong-check', () => {
       this.ping = Date.now() - this.pingStart;
       this.#updatePingDisplay();
@@ -43,34 +49,23 @@ class GameClient {
   async start(playerName) {
     await this.#loadData();
     this.#joinPlayer(playerName);
+    this.#setupUpdateHandler();
     this.#render();
-
-    this.socket.on('update', (data) => {
-      this.running = true;
-      // Decompress compact entity format
-      const typeMap = ['point', 'tail', 'player'];
-      this.entities = (data.e || []).map((e) => ({
-        id: e.i,
-        type: typeMap[e.t],
-        x: e.x,
-        y: e.y,
-        size: e.s,
-        color: e.c,
-        playerId: e.p,
-        name: e.n,
-        points: e.pt,
-      }));
-      this.player = this.entities.find(
-        (el) => el.type === 'player' && el.playerId == this.socket.id
-      );
-      // Only update leaderboard if sent (sent only when changed)
-      if (data.l) {
-        this.leaderboard = data.l;
-      }
-    });
 
     this.socket.on('ded', () => {
       document.querySelector('#deathscreen').style.display = 'flex';
+    });
+
+    let lastDirEmit = 0;
+    document.addEventListener('mousemove', (e) => {
+      if (this.escMenuOpen || !this.player) return;
+      const now = performance.now();
+      if (now - lastDirEmit < 33) return;
+      lastDirEmit = now;
+      const rect = this.canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      this.socket.emit('change-dir', { mouseX, mouseY });
     });
 
     document.addEventListener('keydown', (e) => {
@@ -92,18 +87,6 @@ class GameClient {
       }
     });
 
-    document.addEventListener('mousemove', (e) => {
-      if (this.escMenuOpen || !this.player) return;
-      const rect = this.canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      this.socket.emit('change-dir', {
-        mouseX: mouseX,
-        mouseY: mouseY,
-      });
-    });
-
     this.loading.style.display = 'none';
     this.menu.style.display = 'none';
     this.leaderboardElement.style.display = 'block';
@@ -115,37 +98,122 @@ class GameClient {
     this.socket.emit('player-join', { name });
   }
 
-  #render() {
-    requestAnimationFrame(() => this.#renderFrame());
-    requestAnimationFrame(() => this.#updateUI());
-    requestAnimationFrame(() => this.#cameraFollow());
+  #setupUpdateHandler() {
+    const typeMap = ['point', 'tail', 'player'];
+
+    this.socket.on('update', (data) => {
+      const now = performance.now();
+
+      if (data.a) {
+        for (const e of data.a) {
+          const entity = {
+            id: e.i,
+            type: typeMap[e.t],
+            x: e.x,
+            y: e.y,
+            size: e.s,
+            color: e.c,
+            playerId: e.p,
+            name: e.n,
+            points: e.pt,
+          };
+          this.entityMap.set(e.i, entity);
+
+          this.prevPositions.set(e.i, { x: e.x, y: e.y, size: e.s });
+          this.targetPositions.set(e.i, { x: e.x, y: e.y, size: e.s });
+        }
+      }
+
+      if (data.u) {
+        for (const upd of data.u) {
+          const entity = this.entityMap.get(upd.i);
+          if (!entity) continue;
+
+          const prev = this.targetPositions.get(upd.i) || { x: entity.x, y: entity.y, size: entity.size };
+          this.prevPositions.set(upd.i, { x: prev.x, y: prev.y, size: prev.size });
+
+          const newTarget = {
+            x: upd.x !== undefined ? upd.x : prev.x,
+            y: upd.y !== undefined ? upd.y : prev.y,
+            size: upd.s !== undefined ? upd.s : prev.size,
+          };
+          this.targetPositions.set(upd.i, newTarget);
+
+          if (upd.pt !== undefined) entity.points = upd.pt;
+        }
+      }
+
+      if (data.r) {
+        for (const id of data.r) {
+          this.entityMap.delete(id);
+          this.prevPositions.delete(id);
+          this.targetPositions.delete(id);
+        }
+      }
+
+      if (data.l) {
+        this.leaderboard = data.l;
+      }
+
+      this.lastUpdateTime = now;
+
+      this.player = null;
+      for (const entity of this.entityMap.values()) {
+        if (entity.type === 'player' && entity.playerId == this.socket.id) {
+          this.player = entity;
+          break;
+        }
+      }
+    });
   }
 
-  #renderFrame() {
+  #render() {
+    requestAnimationFrame((ts) => this.#gameLoop(ts));
+  }
+
+  #gameLoop(timestamp) {
+    const alpha = Math.min(1, (performance.now() - this.lastUpdateTime) / SERVER_TICK_MS);
+
+    this.#cameraFollow(alpha);
+    this.#renderFrame(alpha);
+    this.#updateUI();
+
+    requestAnimationFrame((ts) => this.#gameLoop(ts));
+  }
+
+  #lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  #getRenderPos(entity, alpha) {
+    const prev = this.prevPositions.get(entity.id);
+    const target = this.targetPositions.get(entity.id);
+    if (!prev || !target) return { x: entity.x, y: entity.y, size: entity.size };
+    return {
+      x: this.#lerp(prev.x, target.x, alpha),
+      y: this.#lerp(prev.y, target.y, alpha),
+      size: this.#lerp(prev.size, target.size, alpha),
+    };
+  }
+
+  #renderFrame(alpha) {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     const players = [];
 
-    // First pass: render all entities (points, tails, player bodies)
-    for (const entity of this.entities) {
-      if (entity.type === 'point') {
-        this.ctx.fillStyle = entity.color;
-        this.ctx.fillRect(entity.x, entity.y, entity.size, entity.size);
-      } else if (entity.type === 'tail') {
-        this.ctx.fillStyle = entity.color;
-        this.ctx.fillRect(entity.x, entity.y, entity.size, entity.size);
-      } else if (entity.type === 'player') {
-        this.ctx.fillStyle = entity.color;
-        this.ctx.fillRect(entity.x, entity.y, entity.size, entity.size);
-        players.push(entity);
+    for (const entity of this.entityMap.values()) {
+      const { x, y, size } = this.#getRenderPos(entity, alpha);
+      this.ctx.fillStyle = entity.color;
+      this.ctx.fillRect(x, y, size, size);
+      if (entity.type === 'player') {
+        players.push({ entity, x, y, size });
       }
     }
 
-    // Second pass: render nicknames ABOVE everything
-    for (const entity of players) {
+    for (const { entity, x, y, size } of players) {
       if (entity.name) {
-        const fontSize = Math.max(12, entity.size * 0.8);
-        const nameOffset = entity.size + 8;
+        const fontSize = Math.max(12, size * 0.8);
+        const nameOffset = size + 8;
 
         this.ctx.save();
         this.ctx.font = `${fontSize}px Arial`;
@@ -155,40 +223,31 @@ class GameClient {
         this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
         this.ctx.lineWidth = 2;
 
-        const textX = entity.x + entity.size / 2;
-        const textY = entity.y - nameOffset;
+        const textX = x + size / 2;
+        const textY = y - nameOffset;
 
         this.ctx.strokeText(entity.name, textX, textY);
         this.ctx.fillText(entity.name, textX, textY);
         this.ctx.restore();
       }
     }
-
-    requestAnimationFrame(() => this.#renderFrame());
   }
 
-  #cameraFollow() {
+  #cameraFollow(alpha) {
+    if (!this.player) return;
+
     const windowX = window.innerWidth;
     const windowY = window.innerHeight;
 
-    if (
-      this.player &&
-      this.player.x !== undefined &&
-      this.player.y !== undefined
-    ) {
-      this.canvas.style.left = `${-(this.player.x - windowX / 2)}px`;
-      this.canvas.style.top = `${-(this.player.y - windowY / 2)}px`;
-    }
-    requestAnimationFrame(() => this.#cameraFollow());
+    const { x, y } = this.#getRenderPos(this.player, alpha);
+    this.canvas.style.left = `${-(x - windowX / 2)}px`;
+    this.canvas.style.top = `${-(y - windowY / 2)}px`;
   }
 
   #updateUI() {
-    let htmlString = ``;
-
+    let htmlString = '';
     for (const [index, player] of this.leaderboard.entries()) {
-      htmlString += `<div><b>${index + 1}.</b> ${player.name || 'Brak'}: ${
-        player.points
-      }</div>`;
+      htmlString += `<div><b>${index + 1}.</b> ${player.name || 'Brak'}: ${player.points}</div>`;
     }
     this.leaderboardContent.innerHTML = htmlString;
 
@@ -196,19 +255,14 @@ class GameClient {
       this.playerPoints.innerHTML = this.player.points || 0;
       this.name.innerHTML = this.player.name || 'Brak';
     }
-
-    requestAnimationFrame(() => this.#updateUI());
   }
 
   async #loadData() {
-    console.log('ladowanie..');
     const req = await axios.get('/state');
     if (req.status == 200) {
       const { data } = await axios.get('/game-data');
-      this.entities = data.entities || [];
       this.canvas.width = data.width;
       this.canvas.height = data.height;
-      console.log('zaladowano.');
       return true;
     } else {
       return this.#loadData();
@@ -227,11 +281,11 @@ class GameClient {
 
     let color;
     if (this.ping < 100) {
-      color = '#22c55e'; // green
+      color = '#22c55e';
     } else if (this.ping <= 200) {
-      color = '#eab308'; // yellow
+      color = '#eab308';
     } else {
-      color = '#ef4444'; // red
+      color = '#ef4444';
     }
 
     this.pingElement.style.color = color;
@@ -290,7 +344,9 @@ class GameClient {
     this.menu.style.display = 'flex';
     this.socket.disconnect();
     this.socket = io('');
-    this.entities = [];
+    this.entityMap.clear();
+    this.prevPositions.clear();
+    this.targetPositions.clear();
     this.player = null;
     if (this.canvas) {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);

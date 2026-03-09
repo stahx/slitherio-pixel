@@ -21,6 +21,8 @@ class GameServer {
     this.lastLeaderboard = '';
     this.updateCounter = 0;
 
+    this.playerState = new Map();
+
     this.io.on('connection', (socket) => {
       socket.on('player-join', (data) => {
         const playerExists = this.#getPlayerEntity(socket.id);
@@ -42,6 +44,7 @@ class GameServer {
         });
 
         this.entities.push(playerEntity);
+        this.playerState.set(socket.id, new Map());
         this.#emitUpdate();
       });
 
@@ -61,6 +64,7 @@ class GameServer {
       });
 
       socket.on('disconnect', () => {
+        this.playerState.delete(socket.id);
         this.#removePlayerEntities(socket.id);
         this.#emitUpdate();
       });
@@ -292,11 +296,29 @@ class GameServer {
       });
   }
 
+  #serializeEntity(e) {
+    const base = {
+      i: e.id,
+      t: e.type === 'point' ? 0 : e.type === 'tail' ? 1 : 2,
+      x: Math.round(e.x),
+      y: Math.round(e.y),
+      s: Math.round(e.size),
+      c: e.color,
+    };
+    if (e.type === 'player') {
+      base.p = e.playerId;
+      base.n = e.name;
+      base.pt = e.points;
+    } else if (e.type === 'tail') {
+      base.p = e.playerId;
+    }
+    return base;
+  }
+
   #emitUpdate() {
     const players = this.#getPlayerEntities();
     this.updateCounter++;
 
-    // Only recalculate leaderboard every 10 ticks
     let leaderboard = null;
     if (this.updateCounter % 10 === 0) {
       const newLeaderboard = this.#getLeaderboard();
@@ -307,44 +329,70 @@ class GameServer {
       }
     }
 
+    const FOG_RADIUS_SQ = 1500 * 1500;
+
     for (const player of players) {
+      const prevVisible = this.playerState.get(player.playerId);
+      if (!prevVisible) continue;
+
       const playerX = player.x;
       const playerY = player.y;
 
-      const visibleEntities = this.entities.filter((entity) => {
+      const added = [];
+      const updated = [];
+      const removed = [];
+
+      const currentVisible = new Map();
+
+      for (const entity of this.entities) {
         const distX = entity.x - playerX;
         const distY = entity.y - playerY;
-        // Use squared distance to avoid sqrt (faster)
-        return distX * distX + distY * distY <= 2250000; // 1500^2
-      });
+        if (distX * distX + distY * distY > FOG_RADIUS_SQ) continue;
 
-      // Compact format: t=type(0=point,1=tail,2=player), shorter keys, integers
-      const compactEntities = visibleEntities.map((e) => {
-        const base = {
-          i: e.id,
-          t: e.type === 'point' ? 0 : e.type === 'tail' ? 1 : 2,
-          x: Math.round(e.x),
-          y: Math.round(e.y),
-          s: Math.round(e.size),
-          c: e.color,
-        };
-        // Only add extra data for players
-        if (e.type === 'player') {
-          base.p = e.playerId;
-          base.n = e.name;
-          base.pt = e.points;
-        } else if (e.type === 'tail') {
-          base.p = e.playerId;
+        currentVisible.set(entity.id, entity);
+
+        if (!prevVisible.has(entity.id)) {
+          added.push(this.#serializeEntity(entity));
+        } else if (entity.type !== 'point') {
+          const prev = prevVisible.get(entity.id);
+          const rx = Math.round(entity.x);
+          const ry = Math.round(entity.y);
+          const rs = Math.round(entity.size);
+          if (prev.x !== rx || prev.y !== ry || prev.s !== rs || (entity.type === 'player' && prev.pt !== entity.points)) {
+            const upd = { i: entity.id, x: rx, y: ry };
+            if (prev.s !== rs) upd.s = rs;
+            if (entity.type === 'player' && prev.pt !== entity.points) upd.pt = entity.points;
+            updated.push(upd);
+          }
         }
-        return base;
-      });
-
-      const updateData = { e: compactEntities };
-      if (leaderboard) {
-        updateData.l = leaderboard;
       }
 
-      this.io.to(player.playerId).emit('update', updateData);
+      for (const [id] of prevVisible) {
+        if (!currentVisible.has(id)) {
+          removed.push(id);
+        }
+      }
+
+      const newPrevMap = new Map();
+      for (const [id, entity] of currentVisible) {
+        newPrevMap.set(id, {
+          x: Math.round(entity.x),
+          y: Math.round(entity.y),
+          s: Math.round(entity.size),
+          pt: entity.points,
+        });
+      }
+      this.playerState.set(player.playerId, newPrevMap);
+
+      const updateData = {};
+      if (added.length) updateData.a = added;
+      if (updated.length) updateData.u = updated;
+      if (removed.length) updateData.r = removed;
+      if (leaderboard) updateData.l = leaderboard;
+
+      if (added.length || updated.length || removed.length || leaderboard) {
+        this.io.to(player.playerId).emit('update', updateData);
+      }
     }
   }
 }
