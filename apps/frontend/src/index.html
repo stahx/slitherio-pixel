@@ -1,11 +1,6 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <script
-      data-goatcounter="https://slither-stats.stah.dev/count"
-      async
-      src="https://slither-stats.stah.dev/count.js"
-    ></script>
     <meta charset="UTF-8" />
     <meta
       http-equiv="X-UA-Compatible"
@@ -113,61 +108,65 @@
     <div id="ping-indicator">
       <span id="ping-value">-- ms</span>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.2/dist/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0/axios.min.js"></script>
+    <script src="./class/GameClient.js"></script>
+    <script>
+      const game = new GameClient();
+
+      function restart() {
+        game.start(document.querySelector('#name-input').value);
+        document.querySelector('#deathscreen').style.display = 'none';
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && game.isGameRunning()) {
+          e.preventDefault();
+          game.toggleEscMenu();
+        }
+      });
+
+      document.addEventListener(
+        'wheel',
+        (e) => {
+          if (e.ctrlKey) {
+            e.preventDefault();
+          }
+        },
+        { passive: false },
+      );
+
+      document.addEventListener(
+        'touchstart',
+        (e) => {
+          if (e.touches.length > 1) {
+            e.preventDefault();
+          }
+        },
+        { passive: false },
+      );
+
+      document.addEventListener('gesturestart', (e) => {
+        e.preventDefault();
+      });
+
+      let lastTouchEnd = 0;
+      document.addEventListener(
+        'touchend',
+        (e) => {
+          const now = Date.now();
+          if (now - lastTouchEnd <= 300) {
+            e.preventDefault();
+          }
+          lastTouchEnd = now;
+        },
+        false,
+      );
+    </script>
+    <script
+      data-goatcounter="https://slither-stats.stah.dev/count"
+      async
+      src="https://slither-stats.stah.dev/count.js"
+    ></script>
   </body>
 </html>
-
-<script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.2/dist/socket.io.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0/axios.min.js"></script>
-<script src="./class/GameClient.js"></script>
-<script>
-  const game = new GameClient();
-
-  function restart() {
-    game.start(document.querySelector('#name-input').value);
-    document.querySelector('#deathscreen').style.display = 'none';
-  }
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && game.isGameRunning()) {
-      e.preventDefault();
-      game.toggleEscMenu();
-    }
-  });
-
-  document.addEventListener(
-    'wheel',
-    (e) => {
-      if (e.ctrlKey) {
-        e.preventDefault();
-      }
-    },
-    { passive: false },
-  );
-
-  document.addEventListener(
-    'touchstart',
-    (e) => {
-      if (e.touches.length > 1) {
-        e.preventDefault();
-      }
-    },
-    { passive: false },
-  );
-
-  document.addEventListener('gesturestart', (e) => {
-    e.preventDefault();
-  });
-
-  let lastTouchEnd = 0;
-  document.addEventListener(
-    'touchend',
-    (e) => {
-      const now = Date.now();
-      if (now - lastTouchEnd <= 300) {
-        e.preventDefault();
-      }
-      lastTouchEnd = now;
-    },
-    false,
-  );
-</script>
