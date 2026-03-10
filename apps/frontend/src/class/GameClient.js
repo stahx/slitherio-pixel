@@ -1,5 +1,4 @@
 const SERVER_TICK_MS = 1000 / 60;
-const FOG_RADIUS_SQ = 1500 * 1500;
 
 class GameClient {
   constructor() {
@@ -20,9 +19,7 @@ class GameClient {
     this.socket = io('');
 
     this.leaderboard = [];
-
     this.entityMap = new Map();
-
     this.prevPositions = new Map();
     this.targetPositions = new Map();
     this.lastUpdateTime = performance.now();
@@ -31,6 +28,11 @@ class GameClient {
 
     this.canvas.width = 1920;
     this.canvas.height = 1080;
+
+    this.spectatorX = 2000;
+    this.spectatorY = 2000;
+    this.spectatorDX = (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.3);
+    this.spectatorDY = (Math.random() > 0.5 ? 1 : -1) * (0.2 + Math.random() * 0.2);
 
     this.isSpaceHeld = false;
     this.gameRunning = false;
@@ -44,48 +46,52 @@ class GameClient {
       this.#updatePingDisplay();
     });
     this.#startPingInterval();
+    this.#setupUpdateHandler();
+    this.#initCanvas();
+  }
+
+  async #initCanvas() {
+    await this.#loadData();
+    this.#render();
   }
 
   async start(playerName) {
-    await this.#loadData();
     this.#joinPlayer(playerName);
-    this.#setupUpdateHandler();
-    this.#render();
 
-    this.socket.on('ded', () => {
-      document.querySelector('#deathscreen').style.display = 'flex';
-    });
+    if (!this._inputsBound) {
+      this._inputsBound = true;
 
-    let lastDirEmit = 0;
-    document.addEventListener('mousemove', (e) => {
-      if (this.escMenuOpen || !this.player) return;
-      const now = performance.now();
-      if (now - lastDirEmit < 33) return;
-      lastDirEmit = now;
-      const rect = this.canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      this.socket.emit('change-dir', { mouseX, mouseY });
-    });
+      let lastDirEmit = 0;
+      document.addEventListener('mousemove', (e) => {
+        if (this.escMenuOpen || !this.player) return;
+        const now = performance.now();
+        if (now - lastDirEmit < 33) return;
+        lastDirEmit = now;
+        const rect = this.canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        this.socket.emit('change-dir', { mouseX, mouseY });
+      });
 
-    document.addEventListener('keydown', (e) => {
-      if (this.escMenuOpen) return;
-      if (e.keyCode == 32 && !this.isSpaceHeld) {
-        this.isSpaceHeld = true;
-        this.speedMusic.currentTime = 0;
-        this.speedMusic.volume = 0.1;
-        this.speedMusic.play();
-        this.socket.emit('player-speed', true);
-      }
-    });
+      document.addEventListener('keydown', (e) => {
+        if (this.escMenuOpen) return;
+        if (e.keyCode == 32 && !this.isSpaceHeld) {
+          this.isSpaceHeld = true;
+          this.speedMusic.currentTime = 0;
+          this.speedMusic.volume = 0.1;
+          this.speedMusic.play();
+          this.socket.emit('player-speed', true);
+        }
+      });
 
-    document.addEventListener('keyup', (e) => {
-      if (this.escMenuOpen) return;
-      if (e.keyCode == 32) {
-        this.isSpaceHeld = false;
-        this.socket.emit('player-speed', false);
-      }
-    });
+      document.addEventListener('keyup', (e) => {
+        if (this.escMenuOpen) return;
+        if (e.keyCode == 32) {
+          this.isSpaceHeld = false;
+          this.socket.emit('player-speed', false);
+        }
+      });
+    }
 
     this.loading.style.display = 'none';
     this.menu.style.display = 'none';
@@ -100,6 +106,10 @@ class GameClient {
 
   #setupUpdateHandler() {
     const typeMap = ['point', 'tail', 'player'];
+
+    this.socket.on('ded', () => {
+      document.querySelector('#deathscreen').style.display = 'flex';
+    });
 
     this.socket.on('update', (data) => {
       const now = performance.now();
@@ -174,9 +184,16 @@ class GameClient {
   #gameLoop(timestamp) {
     const alpha = Math.min(1, (performance.now() - this.lastUpdateTime) / SERVER_TICK_MS);
 
+    if (!this.player) {
+      this.spectatorX += this.spectatorDX;
+      this.spectatorY += this.spectatorDY;
+      if (this.spectatorX < 500 || this.spectatorX > this.canvas.width - 500) this.spectatorDX *= -1;
+      if (this.spectatorY < 500 || this.spectatorY > this.canvas.height - 500) this.spectatorDY *= -1;
+    }
+
     this.#cameraFollow(alpha);
     this.#renderFrame(alpha);
-    this.#updateUI();
+    if (this.gameRunning) this.#updateUI();
 
     requestAnimationFrame((ts) => this.#gameLoop(ts));
   }
@@ -234,14 +251,21 @@ class GameClient {
   }
 
   #cameraFollow(alpha) {
-    if (!this.player) return;
-
     const windowX = window.innerWidth;
     const windowY = window.innerHeight;
 
-    const { x, y } = this.#getRenderPos(this.player, alpha);
-    this.canvas.style.left = `${-(x - windowX / 2)}px`;
-    this.canvas.style.top = `${-(y - windowY / 2)}px`;
+    let camX, camY;
+    if (this.player) {
+      const pos = this.#getRenderPos(this.player, alpha);
+      camX = pos.x;
+      camY = pos.y;
+    } else {
+      camX = this.spectatorX;
+      camY = this.spectatorY;
+    }
+
+    this.canvas.style.left = `${-(camX - windowX / 2)}px`;
+    this.canvas.style.top = `${-(camY - windowY / 2)}px`;
   }
 
   #updateUI() {
@@ -341,6 +365,7 @@ class GameClient {
     this.escMenuOpen = false;
     this.escMenu.style.display = 'none';
     this.game.style.display = 'none';
+    this.leaderboardElement.style.display = 'none';
     this.menu.style.display = 'flex';
     this.socket.disconnect();
     this.socket = io('');
@@ -348,8 +373,14 @@ class GameClient {
     this.prevPositions.clear();
     this.targetPositions.clear();
     this.player = null;
-    if (this.canvas) {
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    }
+    this.spectatorX = Math.random() * this.canvas.width;
+    this.spectatorY = Math.random() * this.canvas.height;
+    this.spectatorDX = (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.3);
+    this.spectatorDY = (Math.random() > 0.5 ? 1 : -1) * (0.2 + Math.random() * 0.2);
+    this.socket.on('pong-check', () => {
+      this.ping = Date.now() - this.pingStart;
+      this.#updatePingDisplay();
+    });
+    this.#setupUpdateHandler();
   }
 }

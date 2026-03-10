@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -82,6 +82,7 @@
         <button onclick="game.returnToMenu()">Return to Menu</button>
       </div>
     </div>
+    <canvas id="canvas"></canvas>
     <div id="game">
       <div id="leaderboard">
         <div id="leaderboard-title">Leaderboard</div>
@@ -94,7 +95,6 @@
           <div id="points-amount">0</div>
         </div>
       </div>
-      <canvas id="canvas"></canvas>
       <div id="deathscreen">
         <div class="deathscreen-content">
           <div class="deathscreen-title">Nie żyjesz</div>
@@ -114,6 +114,11 @@
 <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.2/dist/socket.io.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0/axios.min.js"></script>
 <script src="./class/GameClient.js"></script>
+<script
+  data-goatcounter="https://slither-stats.stah.dev/count"
+  async
+  src="https://slither-stats.stah.dev/count.js"
+></script>
 
 <script>
   const game = new GameClient();
@@ -137,7 +142,7 @@
         e.preventDefault();
       }
     },
-    { passive: false }
+    { passive: false },
   );
 
   document.addEventListener(
@@ -147,7 +152,7 @@
         e.preventDefault();
       }
     },
-    { passive: false }
+    { passive: false },
   );
 
   document.addEventListener('gesturestart', (e) => {
@@ -164,6 +169,6 @@
       }
       lastTouchEnd = now;
     },
-    false
+    false,
   );
 </script>

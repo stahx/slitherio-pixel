@@ -22,8 +22,20 @@ class GameServer {
     this.updateCounter = 0;
 
     this.playerState = new Map();
+    this.spectators = new Map();
 
     this.io.on('connection', (socket) => {
+      const initialSnapshot = this.entities.map((e) => this.#serializeEntity(e));
+      socket.emit('update', { a: initialSnapshot });
+      this.spectators.set(socket.id, new Map(
+        this.entities.map((e) => [e.id, {
+          x: Math.round(e.x),
+          y: Math.round(e.y),
+          s: Math.round(e.size),
+          pt: e.points,
+        }])
+      ));
+
       socket.on('player-join', (data) => {
         const playerExists = this.#getPlayerEntity(socket.id);
         if (playerExists) {
@@ -44,7 +56,8 @@ class GameServer {
         });
 
         this.entities.push(playerEntity);
-        this.playerState.set(socket.id, new Map());
+        this.playerState.set(socket.id, this.spectators.get(socket.id) || new Map());
+        this.spectators.delete(socket.id);
         this.#emitUpdate();
       });
 
@@ -65,6 +78,7 @@ class GameServer {
 
       socket.on('disconnect', () => {
         this.playerState.delete(socket.id);
+        this.spectators.delete(socket.id);
         this.#removePlayerEntities(socket.id);
         this.#emitUpdate();
       });
@@ -392,6 +406,58 @@ class GameServer {
 
       if (added.length || updated.length || removed.length || leaderboard) {
         this.io.to(player.playerId).emit('update', updateData);
+      }
+    }
+
+    for (const [socketId, prevVisible] of this.spectators) {
+      const added = [];
+      const updated = [];
+      const removed = [];
+      const currentVisible = new Map();
+
+      for (const entity of this.entities) {
+        currentVisible.set(entity.id, entity);
+
+        if (!prevVisible.has(entity.id)) {
+          added.push(this.#serializeEntity(entity));
+        } else if (entity.type !== 'point') {
+          const prev = prevVisible.get(entity.id);
+          const rx = Math.round(entity.x);
+          const ry = Math.round(entity.y);
+          const rs = Math.round(entity.size);
+          if (prev.x !== rx || prev.y !== ry || prev.s !== rs || (entity.type === 'player' && prev.pt !== entity.points)) {
+            const upd = { i: entity.id, x: rx, y: ry };
+            if (prev.s !== rs) upd.s = rs;
+            if (entity.type === 'player' && prev.pt !== entity.points) upd.pt = entity.points;
+            updated.push(upd);
+          }
+        }
+      }
+
+      for (const [id] of prevVisible) {
+        if (!currentVisible.has(id)) {
+          removed.push(id);
+        }
+      }
+
+      const newPrevMap = new Map();
+      for (const [id, entity] of currentVisible) {
+        newPrevMap.set(id, {
+          x: Math.round(entity.x),
+          y: Math.round(entity.y),
+          s: Math.round(entity.size),
+          pt: entity.points,
+        });
+      }
+      this.spectators.set(socketId, newPrevMap);
+
+      const updateData = {};
+      if (added.length) updateData.a = added;
+      if (updated.length) updateData.u = updated;
+      if (removed.length) updateData.r = removed;
+
+      if (added.length || updated.length || removed.length) {
+        this.io.to(socketId).emit('update', updateData);
       }
     }
   }
