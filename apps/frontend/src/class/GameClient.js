@@ -25,9 +25,16 @@ class GameClient {
     this.lastUpdateTime = performance.now();
 
     this.player = null;
+    this._uiDirty = false;
 
-    this.canvas.width = 1920;
-    this.canvas.height = 1080;
+    this.canvas.width = window.innerWidth;
+    this.canvas.height = window.innerHeight;
+
+    this.worldWidth = 4000;
+    this.worldHeight = 4000;
+
+    this.cameraX = 0;
+    this.cameraY = 0;
 
     this.spectatorX = 2000;
     this.spectatorY = 2000;
@@ -44,6 +51,16 @@ class GameClient {
     this.isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     this.joystickActive = false;
     this.joystickTouchId = null;
+
+    this._resizeTimeout = null;
+    window.addEventListener('resize', () => {
+      if (this._resizeTimeout) return;
+      this._resizeTimeout = setTimeout(() => {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+        this._resizeTimeout = null;
+      }, 100);
+    });
 
     this.socket.on('pong-check', () => {
       this.ping = Date.now() - this.pingStart;
@@ -75,9 +92,8 @@ class GameClient {
           const now = performance.now();
           if (now - lastDirEmit < 33) return;
           lastDirEmit = now;
-          const rect = this.canvas.getBoundingClientRect();
-          const mouseX = e.clientX - rect.left;
-          const mouseY = e.clientY - rect.top;
+          const mouseX = e.clientX + this.cameraX;
+          const mouseY = e.clientY + this.cameraY;
           this.socket.emit('change-dir', { mouseX, mouseY });
         });
 
@@ -158,9 +174,8 @@ class GameClient {
       const centerX = window.innerWidth / 2;
       const centerY = window.innerHeight / 2;
       const dirLen = 200;
-      const rect = this.canvas.getBoundingClientRect();
-      const mouseX = centerX + Math.cos(angle) * dirLen - rect.left;
-      const mouseY = centerY + Math.sin(angle) * dirLen - rect.top;
+      const mouseX = centerX + Math.cos(angle) * dirLen + this.cameraX;
+      const mouseY = centerY + Math.sin(angle) * dirLen + this.cameraY;
       this.socket.emit('change-dir', { mouseX, mouseY });
     };
 
@@ -258,6 +273,10 @@ class GameClient {
 
           this.prevPositions.set(e.i, { x: e.x, y: e.y, size: e.s });
           this.targetPositions.set(e.i, { x: e.x, y: e.y, size: e.s });
+
+          if (entity.type === 'player' && entity.playerId == this.socket.id) {
+            this.player = entity;
+          }
         }
       }
 
@@ -276,12 +295,20 @@ class GameClient {
           };
           this.targetPositions.set(upd.i, newTarget);
 
-          if (upd.pt !== undefined) entity.points = upd.pt;
+          if (upd.pt !== undefined) {
+            entity.points = upd.pt;
+            if (this.player && entity.id === this.player.id) {
+              this._uiDirty = true;
+            }
+          }
         }
       }
 
       if (data.r) {
         for (const id of data.r) {
+          if (this.player && id === this.player.id) {
+            this.player = null;
+          }
           this.entityMap.delete(id);
           this.prevPositions.delete(id);
           this.targetPositions.delete(id);
@@ -290,17 +317,10 @@ class GameClient {
 
       if (data.l) {
         this.leaderboard = data.l;
+        this._uiDirty = true;
       }
 
       this.lastUpdateTime = now;
-
-      this.player = null;
-      for (const entity of this.entityMap.values()) {
-        if (entity.type === 'player' && entity.playerId == this.socket.id) {
-          this.player = entity;
-          break;
-        }
-      }
     });
   }
 
@@ -314,13 +334,13 @@ class GameClient {
     if (!this.player) {
       this.spectatorX += this.spectatorDX;
       this.spectatorY += this.spectatorDY;
-      if (this.spectatorX < 500 || this.spectatorX > this.canvas.width - 500) this.spectatorDX *= -1;
-      if (this.spectatorY < 500 || this.spectatorY > this.canvas.height - 500) this.spectatorDY *= -1;
+      if (this.spectatorX < 500 || this.spectatorX > this.worldWidth - 500) this.spectatorDX *= -1;
+      if (this.spectatorY < 500 || this.spectatorY > this.worldHeight - 500) this.spectatorDY *= -1;
     }
 
     this.#cameraFollow(alpha);
     this.#renderFrame(alpha);
-    if (this.gameRunning) this.#updateUI();
+    if (this.gameRunning && this._uiDirty) this.#updateUI();
 
     requestAnimationFrame((ts) => this.#gameLoop(ts));
   }
@@ -343,10 +363,19 @@ class GameClient {
   #renderFrame(alpha) {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+    this.ctx.save();
+    this.ctx.translate(-this.cameraX, -this.cameraY);
+
+    const camX = this.cameraX;
+    const camY = this.cameraY;
+    const camR = camX + this.canvas.width;
+    const camB = camY + this.canvas.height;
+
     const players = [];
 
     for (const entity of this.entityMap.values()) {
       const { x, y, size } = this.#getRenderPos(entity, alpha);
+      if (x + size < camX || x > camR || y + size < camY || y > camB) continue;
       this.ctx.fillStyle = entity.color;
       this.ctx.fillRect(x, y, size, size);
       if (entity.type === 'player') {
@@ -375,12 +404,11 @@ class GameClient {
         this.ctx.restore();
       }
     }
+
+    this.ctx.restore();
   }
 
   #cameraFollow(alpha) {
-    const windowX = window.innerWidth;
-    const windowY = window.innerHeight;
-
     let camX, camY;
     if (this.player) {
       const pos = this.#getRenderPos(this.player, alpha);
@@ -391,8 +419,8 @@ class GameClient {
       camY = this.spectatorY;
     }
 
-    this.canvas.style.left = `${-(camX - windowX / 2)}px`;
-    this.canvas.style.top = `${-(camY - windowY / 2)}px`;
+    this.cameraX = camX - this.canvas.width / 2;
+    this.cameraY = camY - this.canvas.height / 2;
   }
 
   #updateUI() {
@@ -406,14 +434,18 @@ class GameClient {
       this.playerPoints.innerHTML = this.player.points || 0;
       this.name.innerHTML = this.player.name || 'Brak';
     }
+
+    this._uiDirty = false;
   }
 
   async #loadData() {
     const req = await axios.get('/state');
     if (req.status == 200) {
       const { data } = await axios.get('/game-data');
-      this.canvas.width = data.width;
-      this.canvas.height = data.height;
+      this.worldWidth = data.width;
+      this.worldHeight = data.height;
+      this.canvas.width = window.innerWidth;
+      this.canvas.height = window.innerHeight;
       return true;
     } else {
       return this.#loadData();
@@ -421,7 +453,7 @@ class GameClient {
   }
 
   #startPingInterval() {
-    setInterval(() => {
+    this.pingIntervalId = setInterval(() => {
       this.pingStart = Date.now();
       this.socket.emit('ping-check');
     }, 2000);
@@ -495,20 +527,22 @@ class GameClient {
     this.leaderboardElement.style.display = 'none';
     this.menu.style.display = 'flex';
     this.#hideMobileControls();
+    clearInterval(this.pingIntervalId);
     this.socket.disconnect();
     this.socket = io('');
     this.entityMap.clear();
     this.prevPositions.clear();
     this.targetPositions.clear();
     this.player = null;
-    this.spectatorX = Math.random() * this.canvas.width;
-    this.spectatorY = Math.random() * this.canvas.height;
+    this.spectatorX = Math.random() * this.worldWidth;
+    this.spectatorY = Math.random() * this.worldHeight;
     this.spectatorDX = (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.3);
     this.spectatorDY = (Math.random() > 0.5 ? 1 : -1) * (0.2 + Math.random() * 0.2);
     this.socket.on('pong-check', () => {
       this.ping = Date.now() - this.pingStart;
       this.#updatePingDisplay();
     });
+    this.#startPingInterval();
     this.#setupUpdateHandler();
   }
 }

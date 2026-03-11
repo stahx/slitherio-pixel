@@ -10,6 +10,8 @@ import {
   calculatePlayerNewSize,
 } from '../helpers/index.js';
 
+const GRID_CELL_SIZE = 100;
+
 class GameServer {
   constructor(io, config) {
     this.io = io;
@@ -17,24 +19,35 @@ class GameServer {
 
     this.running = false;
 
-    this.entities = [];
+    this.players = new Map();
+    this.tails = new Map();
+    this.points = new Map();
+    this.allEntities = new Map();
+
     this.lastLeaderboard = '';
     this.updateCounter = 0;
 
     this.playerState = new Map();
     this.spectators = new Map();
 
+    this.grid = new Map();
+
     this.io.on('connection', (socket) => {
-      const initialSnapshot = this.entities.map((e) => this.#serializeEntity(e));
+      const initialSnapshot = [];
+      for (const e of this.allEntities.values()) {
+        initialSnapshot.push(this.#serializeEntity(e));
+      }
       socket.emit('update', { a: initialSnapshot });
-      this.spectators.set(socket.id, new Map(
-        this.entities.map((e) => [e.id, {
+      const spectatorMap = new Map();
+      for (const e of this.allEntities.values()) {
+        spectatorMap.set(e.id, {
           x: Math.round(e.x),
           y: Math.round(e.y),
           s: Math.round(e.size),
           pt: e.points,
-        }])
-      ));
+        });
+      }
+      this.spectators.set(socket.id, spectatorMap);
 
       socket.on('player-join', (data) => {
         const playerExists = this.#getPlayerEntity(socket.id);
@@ -55,7 +68,9 @@ class GameServer {
           points: 0,
         });
 
-        this.entities.push(playerEntity);
+        this.players.set(socket.id, playerEntity);
+        this.allEntities.set(playerEntity.id, playerEntity);
+        this.tails.set(socket.id, []);
         this.playerState.set(socket.id, this.spectators.get(socket.id) || new Map());
         this.spectators.delete(socket.id);
         this.#emitUpdate();
@@ -89,6 +104,10 @@ class GameServer {
     });
   }
 
+  get entities() {
+    return Array.from(this.allEntities.values());
+  }
+
   start() {
     this.#mainLoop();
     this.#generatePoints(this.config.POINTS_AMOUNT);
@@ -100,6 +119,8 @@ class GameServer {
     const MAX_ROTATION_SPEED = 0.08; // radians per tick - lower = slower turning
 
     setInterval(() => {
+      this.#rebuildGrid();
+
       const players = this.#getPlayerEntities();
 
       for (const player of players) {
@@ -176,13 +197,14 @@ class GameServer {
             color: player.color,
             size: player.size,
           });
-          this.entities.push(tailEntity);
+          this.tails.get(player.playerId).push(tailEntity);
+          this.allEntities.set(tailEntity.id, tailEntity);
         }
 
         if (tailLimit && tailEntities.length > 0) {
-          this.entities = this.entities.filter(
-            (e) => e.id !== tailEntities[0].id
-          );
+          const tailArr = this.tails.get(player.playerId);
+          const removed = tailArr.shift();
+          this.allEntities.delete(removed.id);
         }
 
         this.#detectPointCollisions(player);
@@ -192,6 +214,41 @@ class GameServer {
       }
       this.#emitUpdate();
     }, 1000 / this.config.TICK_RATE);
+  }
+
+  #rebuildGrid() {
+    this.grid.clear();
+    for (const entity of this.allEntities.values()) {
+      if (entity.type === 'player') continue;
+      const cellX = Math.floor(entity.x / GRID_CELL_SIZE);
+      const cellY = Math.floor(entity.y / GRID_CELL_SIZE);
+      const key = cellX + ',' + cellY;
+      let cell = this.grid.get(key);
+      if (!cell) {
+        cell = [];
+        this.grid.set(key, cell);
+      }
+      cell.push(entity);
+    }
+  }
+
+  #getNearbyCells(x, y, radius) {
+    const result = [];
+    const minCX = Math.floor((x - radius) / GRID_CELL_SIZE);
+    const maxCX = Math.floor((x + radius) / GRID_CELL_SIZE);
+    const minCY = Math.floor((y - radius) / GRID_CELL_SIZE);
+    const maxCY = Math.floor((y + radius) / GRID_CELL_SIZE);
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cy = minCY; cy <= maxCY; cy++) {
+        const cell = this.grid.get(cx + ',' + cy);
+        if (cell) {
+          for (let i = 0; i < cell.length; i++) {
+            result.push(cell[i]);
+          }
+        }
+      }
+    }
+    return result;
   }
 
   #killPlayer(player) {
@@ -208,9 +265,10 @@ class GameServer {
   }
 
   #detectPointCollisions(player) {
-    const points = this.#getPointEntities();
+    const nearby = this.#getNearbyCells(player.x, player.y, player.size + 25);
 
-    for (const point of points) {
+    for (const point of nearby) {
+      if (point.type !== 'point') continue;
       if (
         (player.x >= point.x || player.x + player.size >= point.x) &&
         (player.y >= point.y || player.y + player.size >= point.y) &&
@@ -224,9 +282,10 @@ class GameServer {
   }
 
   #detectTailCollisions(player) {
-    const allTailEntities = this.entities.filter((e) => e.type === 'tail');
+    const nearby = this.#getNearbyCells(player.x, player.y, player.size + 25);
 
-    for (const tailEntity of allTailEntities) {
+    for (const tailEntity of nearby) {
+      if (tailEntity.type !== 'tail') continue;
       if (tailEntity.playerId === player.playerId) {
         continue;
       }
@@ -247,7 +306,8 @@ class GameServer {
   }
 
   #pickPoint(player, point) {
-    this.entities = this.entities.filter((e) => e.id !== point.id);
+    this.points.delete(point.id);
+    this.allEntities.delete(point.id);
     // Bigger points give more points (size 8 = 1pt, size 16 = 2pts, size 24 = 3pts)
     const pointValue = Math.max(1, Math.floor(point.size / 8));
     player.points += pointValue;
@@ -270,35 +330,39 @@ class GameServer {
       size,
       color: getRandomColor(),
     });
-    this.entities.push(pointEntity);
+    this.points.set(pointEntity.id, pointEntity);
+    this.allEntities.set(pointEntity.id, pointEntity);
   }
 
   #getPlayerEntities() {
-    return this.entities.filter((e) => e.type === 'player');
+    return Array.from(this.players.values());
   }
 
   #getPlayerEntity(playerId) {
-    return this.entities.find(
-      (e) => e.type === 'player' && e.playerId === playerId
-    );
+    return this.players.get(playerId);
   }
 
   #getTailEntities(playerId) {
-    return this.entities.filter(
-      (e) => e.type === 'tail' && e.playerId === playerId
-    );
+    return this.tails.get(playerId) || [];
   }
 
   #getPointEntities() {
-    return this.entities.filter((e) => e.type === 'point');
+    return Array.from(this.points.values());
   }
 
   #removePlayerEntities(playerId) {
-    this.entities = this.entities.filter(
-      (e) =>
-        !(e.type === 'player' && e.playerId === playerId) &&
-        !(e.type === 'tail' && e.playerId === playerId)
-    );
+    const player = this.players.get(playerId);
+    if (player) {
+      this.allEntities.delete(player.id);
+      this.players.delete(playerId);
+    }
+    const playerTails = this.tails.get(playerId);
+    if (playerTails) {
+      for (const tail of playerTails) {
+        this.allEntities.delete(tail.id);
+      }
+      this.tails.delete(playerId);
+    }
   }
 
   #getLeaderboard() {
@@ -358,7 +422,7 @@ class GameServer {
 
       const currentVisible = new Map();
 
-      for (const entity of this.entities) {
+      for (const entity of this.allEntities.values()) {
         const distX = entity.x - playerX;
         const distY = entity.y - playerY;
         if (distX * distX + distY * distY > FOG_RADIUS_SQ) continue;
@@ -415,7 +479,7 @@ class GameServer {
       const removed = [];
       const currentVisible = new Map();
 
-      for (const entity of this.entities) {
+      for (const entity of this.allEntities.values()) {
         currentVisible.set(entity.id, entity);
 
         if (!prevVisible.has(entity.id)) {
