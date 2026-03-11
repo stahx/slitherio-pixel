@@ -8,7 +8,7 @@ export const getRandomSize = (min, max) => {
 
 export const getRandomPosition = (MAP_WIDTH, MAP_HEIGHT) => {
 	return {
-		x: Math.floor(Math.random() * (0 - MAP_WIDTH) + MAP_WIDTH),
-		y: Math.floor(Math.random() * (0 - MAP_HEIGHT) + MAP_HEIGHT),
+		x: Math.floor(Math.random() * MAP_WIDTH),
+		y: Math.floor(Math.random() * MAP_HEIGHT),
 	};
 };

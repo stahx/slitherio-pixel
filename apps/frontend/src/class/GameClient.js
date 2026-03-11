@@ -41,6 +41,10 @@ class GameClient {
     this.pingElement = document.querySelector('#ping-value');
     this.ping = 0;
 
+    this.isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    this.joystickActive = false;
+    this.joystickTouchId = null;
+
     this.socket.on('pong-check', () => {
       this.ping = Date.now() - this.pingStart;
       this.#updatePingDisplay();
@@ -48,6 +52,7 @@ class GameClient {
     this.#startPingInterval();
     this.#setupUpdateHandler();
     this.#initCanvas();
+    if (this.isMobile) this.#createMobileControls();
   }
 
   async #initCanvas() {
@@ -61,36 +66,40 @@ class GameClient {
     if (!this._inputsBound) {
       this._inputsBound = true;
 
-      let lastDirEmit = 0;
-      document.addEventListener('mousemove', (e) => {
-        if (this.escMenuOpen || !this.player) return;
-        const now = performance.now();
-        if (now - lastDirEmit < 33) return;
-        lastDirEmit = now;
-        const rect = this.canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        this.socket.emit('change-dir', { mouseX, mouseY });
-      });
+      if (this.isMobile) {
+        this.#bindMobileInput();
+      } else {
+        let lastDirEmit = 0;
+        document.addEventListener('mousemove', (e) => {
+          if (this.escMenuOpen || !this.player) return;
+          const now = performance.now();
+          if (now - lastDirEmit < 33) return;
+          lastDirEmit = now;
+          const rect = this.canvas.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+          this.socket.emit('change-dir', { mouseX, mouseY });
+        });
 
-      document.addEventListener('keydown', (e) => {
-        if (this.escMenuOpen) return;
-        if (e.keyCode == 32 && !this.isSpaceHeld) {
-          this.isSpaceHeld = true;
-          this.speedMusic.currentTime = 0;
-          this.speedMusic.volume = 0.1;
-          this.speedMusic.play();
-          this.socket.emit('player-speed', true);
-        }
-      });
+        document.addEventListener('keydown', (e) => {
+          if (this.escMenuOpen) return;
+          if (e.keyCode == 32 && !this.isSpaceHeld) {
+            this.isSpaceHeld = true;
+            this.speedMusic.currentTime = 0;
+            this.speedMusic.volume = 0.1;
+            this.speedMusic.play();
+            this.socket.emit('player-speed', true);
+          }
+        });
 
-      document.addEventListener('keyup', (e) => {
-        if (this.escMenuOpen) return;
-        if (e.keyCode == 32) {
-          this.isSpaceHeld = false;
-          this.socket.emit('player-speed', false);
-        }
-      });
+        document.addEventListener('keyup', (e) => {
+          if (this.escMenuOpen) return;
+          if (e.keyCode == 32) {
+            this.isSpaceHeld = false;
+            this.socket.emit('player-speed', false);
+          }
+        });
+      }
     }
 
     this.loading.style.display = 'none';
@@ -98,6 +107,124 @@ class GameClient {
     this.leaderboardElement.style.display = 'block';
     this.game.style.display = 'block';
     this.gameRunning = true;
+    this.#showMobileControls();
+  }
+
+  #createMobileControls() {
+    const joystickZone = document.createElement('div');
+    joystickZone.id = 'joystick-zone';
+    const outer = document.createElement('div');
+    outer.id = 'joystick-outer';
+    const inner = document.createElement('div');
+    inner.id = 'joystick-inner';
+    joystickZone.appendChild(outer);
+    joystickZone.appendChild(inner);
+    document.body.appendChild(joystickZone);
+
+    const boostBtn = document.createElement('div');
+    boostBtn.id = 'boost-button';
+    boostBtn.textContent = 'BOOST';
+    document.body.appendChild(boostBtn);
+
+    this.joystickZone = joystickZone;
+    this.joystickInner = inner;
+    this.boostButton = boostBtn;
+  }
+
+  #showMobileControls() {
+    if (!this.isMobile) return;
+    this.joystickZone.style.display = 'block';
+    this.boostButton.style.display = 'block';
+  }
+
+  #hideMobileControls() {
+    if (!this.isMobile) return;
+    this.joystickZone.style.display = 'none';
+    this.boostButton.style.display = 'none';
+  }
+
+  #bindMobileInput() {
+    const zone = this.joystickZone;
+    const knob = this.joystickInner;
+    const radius = 70;
+    const maxDist = radius - 25;
+    let lastDirEmit = 0;
+
+    const emitDirection = (angle) => {
+      if (this.escMenuOpen || !this.player) return;
+      const now = performance.now();
+      if (now - lastDirEmit < 33) return;
+      lastDirEmit = now;
+      const centerX = window.innerWidth / 2;
+      const centerY = window.innerHeight / 2;
+      const dirLen = 200;
+      const rect = this.canvas.getBoundingClientRect();
+      const mouseX = centerX + Math.cos(angle) * dirLen - rect.left;
+      const mouseY = centerY + Math.sin(angle) * dirLen - rect.top;
+      this.socket.emit('change-dir', { mouseX, mouseY });
+    };
+
+    zone.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (this.joystickTouchId !== null) return;
+      const touch = e.changedTouches[0];
+      this.joystickTouchId = touch.identifier;
+      this.joystickActive = true;
+    }, { passive: false });
+
+    zone.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      for (const touch of e.changedTouches) {
+        if (touch.identifier !== this.joystickTouchId) continue;
+        const rect = zone.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        let dx = touch.clientX - cx;
+        let dy = touch.clientY - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const clampedDist = Math.min(dist, maxDist);
+        const angle = Math.atan2(dy, dx);
+        const knobX = Math.cos(angle) * clampedDist;
+        const knobY = Math.sin(angle) * clampedDist;
+        knob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+        if (clampedDist > 5) emitDirection(angle);
+      }
+    }, { passive: false });
+
+    const resetJoystick = (e) => {
+      for (const touch of e.changedTouches) {
+        if (touch.identifier !== this.joystickTouchId) continue;
+        this.joystickTouchId = null;
+        this.joystickActive = false;
+        knob.style.transform = 'translate(-50%, -50%)';
+      }
+    };
+
+    zone.addEventListener('touchend', resetJoystick, { passive: false });
+    zone.addEventListener('touchcancel', resetJoystick, { passive: false });
+
+    const boost = this.boostButton;
+    boost.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (this.escMenuOpen || this.isSpaceHeld) return;
+      this.isSpaceHeld = true;
+      boost.classList.add('active');
+      this.speedMusic.currentTime = 0;
+      this.speedMusic.volume = 0.1;
+      this.speedMusic.play();
+      this.socket.emit('player-speed', true);
+    }, { passive: false });
+
+    const stopBoost = (e) => {
+      e.preventDefault();
+      if (!this.isSpaceHeld) return;
+      this.isSpaceHeld = false;
+      boost.classList.remove('active');
+      this.socket.emit('player-speed', false);
+    };
+
+    boost.addEventListener('touchend', stopBoost, { passive: false });
+    boost.addEventListener('touchcancel', stopBoost, { passive: false });
   }
 
   #joinPlayer(name) {
@@ -367,6 +494,7 @@ class GameClient {
     this.game.style.display = 'none';
     this.leaderboardElement.style.display = 'none';
     this.menu.style.display = 'flex';
+    this.#hideMobileControls();
     this.socket.disconnect();
     this.socket = io('');
     this.entityMap.clear();
