@@ -48,7 +48,7 @@ class GameClient {
     this.pingElement = document.querySelector('#ping-value');
     this.ping = 0;
 
-    this.isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    this.isMobile = !window.matchMedia('(any-pointer: fine)').matches;
     this.joystickActive = false;
     this.joystickTouchId = null;
 
