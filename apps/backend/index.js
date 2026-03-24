@@ -25,7 +25,7 @@ const gameConfig = {
   NORMAL_SPEED: 1.3,
   BOOST_SPEED: 2.3,
   TICK_RATE: 60,
-  FOG_RADIUS: 1500,
+  FOG_RADIUS: 2000,
 };
 
 const game = new GameServer(io, gameConfig);

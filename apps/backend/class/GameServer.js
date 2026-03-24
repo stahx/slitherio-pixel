@@ -374,6 +374,18 @@ class GameServer {
       });
   }
 
+  #torusDistSq(px, py, ex, ey) {
+    const W = this.config.MAP_WIDTH;
+    const H = this.config.MAP_HEIGHT;
+    let dx = ex - px;
+    let dy = ey - py;
+    if (dx > W / 2) dx -= W;
+    else if (dx < -W / 2) dx += W;
+    if (dy > H / 2) dy -= H;
+    else if (dy < -H / 2) dy += H;
+    return dx * dx + dy * dy;
+  }
+
   #serializeEntity(e) {
     const base = {
       i: e.id,
@@ -407,7 +419,8 @@ class GameServer {
       }
     }
 
-    const FOG_RADIUS_SQ = 1500 * 1500;
+    const R = this.config.FOG_RADIUS;
+    const FOG_RADIUS_SQ = R * R;
 
     for (const player of players) {
       const prevVisible = this.playerState.get(player.playerId);
@@ -423,9 +436,10 @@ class GameServer {
       const currentVisible = new Map();
 
       for (const entity of this.allEntities.values()) {
-        const distX = entity.x - playerX;
-        const distY = entity.y - playerY;
-        if (distX * distX + distY * distY > FOG_RADIUS_SQ) continue;
+        if (
+          this.#torusDistSq(playerX, playerY, entity.x, entity.y) > FOG_RADIUS_SQ
+        )
+          continue;
 
         currentVisible.set(entity.id, entity);
 

@@ -38,8 +38,10 @@ class GameClient {
 
     this.spectatorX = 2000;
     this.spectatorY = 2000;
-    this.spectatorDX = (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.3);
-    this.spectatorDY = (Math.random() > 0.5 ? 1 : -1) * (0.2 + Math.random() * 0.2);
+    this.spectatorDX =
+      (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.3);
+    this.spectatorDY =
+      (Math.random() > 0.5 ? 1 : -1) * (0.2 + Math.random() * 0.2);
 
     this.isSpaceHeld = false;
     this.gameRunning = false;
@@ -92,8 +94,10 @@ class GameClient {
           const now = performance.now();
           if (now - lastDirEmit < 33) return;
           lastDirEmit = now;
-          const mouseX = e.clientX + this.cameraX;
-          const mouseY = e.clientY + this.cameraY;
+          const { mouseX, mouseY } = this.#clientToWrappedWorld(
+            e.clientX,
+            e.clientY,
+          );
           this.socket.emit('change-dir', { mouseX, mouseY });
         });
 
@@ -174,37 +178,47 @@ class GameClient {
       const centerX = window.innerWidth / 2;
       const centerY = window.innerHeight / 2;
       const dirLen = 200;
-      const mouseX = centerX + Math.cos(angle) * dirLen + this.cameraX;
-      const mouseY = centerY + Math.sin(angle) * dirLen + this.cameraY;
+      const rawX = centerX + Math.cos(angle) * dirLen + this.cameraX;
+      const rawY = centerY + Math.sin(angle) * dirLen + this.cameraY;
+      const mouseX = this.#wrapCoord(rawX, this.worldWidth);
+      const mouseY = this.#wrapCoord(rawY, this.worldHeight);
       this.socket.emit('change-dir', { mouseX, mouseY });
     };
 
-    zone.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      if (this.joystickTouchId !== null) return;
-      const touch = e.changedTouches[0];
-      this.joystickTouchId = touch.identifier;
-      this.joystickActive = true;
-    }, { passive: false });
+    zone.addEventListener(
+      'touchstart',
+      (e) => {
+        e.preventDefault();
+        if (this.joystickTouchId !== null) return;
+        const touch = e.changedTouches[0];
+        this.joystickTouchId = touch.identifier;
+        this.joystickActive = true;
+      },
+      { passive: false },
+    );
 
-    zone.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      for (const touch of e.changedTouches) {
-        if (touch.identifier !== this.joystickTouchId) continue;
-        const rect = zone.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        let dx = touch.clientX - cx;
-        let dy = touch.clientY - cy;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const clampedDist = Math.min(dist, maxDist);
-        const angle = Math.atan2(dy, dx);
-        const knobX = Math.cos(angle) * clampedDist;
-        const knobY = Math.sin(angle) * clampedDist;
-        knob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
-        if (clampedDist > 5) emitDirection(angle);
-      }
-    }, { passive: false });
+    zone.addEventListener(
+      'touchmove',
+      (e) => {
+        e.preventDefault();
+        for (const touch of e.changedTouches) {
+          if (touch.identifier !== this.joystickTouchId) continue;
+          const rect = zone.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          let dx = touch.clientX - cx;
+          let dy = touch.clientY - cy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const clampedDist = Math.min(dist, maxDist);
+          const angle = Math.atan2(dy, dx);
+          const knobX = Math.cos(angle) * clampedDist;
+          const knobY = Math.sin(angle) * clampedDist;
+          knob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+          if (clampedDist > 5) emitDirection(angle);
+        }
+      },
+      { passive: false },
+    );
 
     const resetJoystick = (e) => {
       for (const touch of e.changedTouches) {
@@ -219,16 +233,20 @@ class GameClient {
     zone.addEventListener('touchcancel', resetJoystick, { passive: false });
 
     const boost = this.boostButton;
-    boost.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      if (this.escMenuOpen || this.isSpaceHeld) return;
-      this.isSpaceHeld = true;
-      boost.classList.add('active');
-      this.speedMusic.currentTime = 0;
-      this.speedMusic.volume = 0.1;
-      this.speedMusic.play();
-      this.socket.emit('player-speed', true);
-    }, { passive: false });
+    boost.addEventListener(
+      'touchstart',
+      (e) => {
+        e.preventDefault();
+        if (this.escMenuOpen || this.isSpaceHeld) return;
+        this.isSpaceHeld = true;
+        boost.classList.add('active');
+        this.speedMusic.currentTime = 0;
+        this.speedMusic.volume = 0.1;
+        this.speedMusic.play();
+        this.socket.emit('player-speed', true);
+      },
+      { passive: false },
+    );
 
     const stopBoost = (e) => {
       e.preventDefault();
@@ -285,8 +303,16 @@ class GameClient {
           const entity = this.entityMap.get(upd.i);
           if (!entity) continue;
 
-          const prev = this.targetPositions.get(upd.i) || { x: entity.x, y: entity.y, size: entity.size };
-          this.prevPositions.set(upd.i, { x: prev.x, y: prev.y, size: prev.size });
+          const prev = this.targetPositions.get(upd.i) || {
+            x: entity.x,
+            y: entity.y,
+            size: entity.size,
+          };
+          this.prevPositions.set(upd.i, {
+            x: prev.x,
+            y: prev.y,
+            size: prev.size,
+          });
 
           const newTarget = {
             x: upd.x !== undefined ? upd.x : prev.x,
@@ -329,13 +355,18 @@ class GameClient {
   }
 
   #gameLoop(timestamp) {
-    const alpha = Math.min(1, (performance.now() - this.lastUpdateTime) / SERVER_TICK_MS);
+    const alpha = Math.min(
+      1,
+      (performance.now() - this.lastUpdateTime) / SERVER_TICK_MS,
+    );
 
     if (!this.player) {
       this.spectatorX += this.spectatorDX;
       this.spectatorY += this.spectatorDY;
-      if (this.spectatorX < 500 || this.spectatorX > this.worldWidth - 500) this.spectatorDX *= -1;
-      if (this.spectatorY < 500 || this.spectatorY > this.worldHeight - 500) this.spectatorDY *= -1;
+      if (this.spectatorX < 500 || this.spectatorX > this.worldWidth - 500)
+        this.spectatorDX *= -1;
+      if (this.spectatorY < 500 || this.spectatorY > this.worldHeight - 500)
+        this.spectatorDY *= -1;
     }
 
     this.#cameraFollow(alpha);
@@ -349,13 +380,84 @@ class GameClient {
     return a + (b - a) * t;
   }
 
+  #wrapCoord(v, period) {
+    return ((v % period) + period) % period;
+  }
+
+  #clientToWrappedWorld(clientX, clientY) {
+    return {
+      mouseX: this.#wrapCoord(clientX + this.cameraX, this.worldWidth),
+      mouseY: this.#wrapCoord(clientY + this.cameraY, this.worldHeight),
+    };
+  }
+
+  #torusLerp(a, b, t, period) {
+    let d = b - a;
+    if (d > period / 2) d -= period;
+    if (d < -period / 2) d += period;
+    return a + d * t;
+  }
+
+  #forEachTorusCopy(px, py, size, camX, camY, camR, camB, fn) {
+    const W = this.worldWidth;
+    const H = this.worldHeight;
+    const minKx = Math.floor((camX - px - size) / W) - 1;
+    const maxKx = Math.ceil((camR - px) / W) + 1;
+    const minKy = Math.floor((camY - py - size) / H) - 1;
+    const maxKy = Math.ceil((camB - py) / H) + 1;
+    for (let kx = minKx; kx <= maxKx; kx++) {
+      for (let ky = minKy; ky <= maxKy; ky++) {
+        const x = px + kx * W;
+        const y = py + ky * H;
+        if (x + size <= camX || x >= camR || y + size <= camY || y >= camB) continue;
+        fn(x, y);
+      }
+    }
+  }
+
+  #drawTiledBackground(camX, camY, camR, camB) {
+    const W = this.worldWidth;
+    const H = this.worldHeight;
+    const minKx = Math.floor(camX / W) - 1;
+    const maxKx = Math.ceil(camR / W) + 1;
+    const minKy = Math.floor(camY / H) - 1;
+    const maxKy = Math.ceil(camB / H) + 1;
+    for (let kx = minKx; kx <= maxKx; kx++) {
+      for (let ky = minKy; ky <= maxKy; ky++) {
+        const ox = kx * W;
+        const oy = ky * H;
+        this.ctx.fillStyle = 'rgb(18, 18, 18)';
+        this.ctx.fillRect(ox, oy, W, H);
+      }
+    }
+    const step = 160;
+    const gx0 = Math.floor(camX / step) * step;
+    const gy0 = Math.floor(camY / step) * step;
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    for (let x = gx0; x <= camR + step; x += step) {
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, camY);
+      this.ctx.lineTo(x, camB);
+      this.ctx.stroke();
+    }
+    for (let y = gy0; y <= camB + step; y += step) {
+      this.ctx.beginPath();
+      this.ctx.moveTo(camX, y);
+      this.ctx.lineTo(camR, y);
+      this.ctx.stroke();
+    }
+  }
+
   #getRenderPos(entity, alpha) {
     const prev = this.prevPositions.get(entity.id);
     const target = this.targetPositions.get(entity.id);
-    if (!prev || !target) return { x: entity.x, y: entity.y, size: entity.size };
+    if (!prev || !target)
+      return { x: entity.x, y: entity.y, size: entity.size };
+    const W = this.worldWidth;
+    const H = this.worldHeight;
     return {
-      x: this.#lerp(prev.x, target.x, alpha),
-      y: this.#lerp(prev.y, target.y, alpha),
+      x: this.#torusLerp(prev.x, target.x, alpha, W),
+      y: this.#torusLerp(prev.y, target.y, alpha, H),
       size: this.#lerp(prev.size, target.size, alpha),
     };
   }
@@ -371,16 +473,35 @@ class GameClient {
     const camR = camX + this.canvas.width;
     const camB = camY + this.canvas.height;
 
+    this.#drawTiledBackground(camX, camY, camR, camB);
+
     const players = [];
+    const labeledPlayerIds = new Set();
 
     for (const entity of this.entityMap.values()) {
-      const { x, y, size } = this.#getRenderPos(entity, alpha);
-      if (x + size < camX || x > camR || y + size < camY || y > camB) continue;
-      this.ctx.fillStyle = entity.color;
-      this.ctx.fillRect(x, y, size, size);
-      if (entity.type === 'player') {
-        players.push({ entity, x, y, size });
-      }
+      const pos = this.#getRenderPos(entity, alpha);
+      const { size } = pos;
+      this.#forEachTorusCopy(
+        pos.x,
+        pos.y,
+        size,
+        camX,
+        camY,
+        camR,
+        camB,
+        (x, y) => {
+          this.ctx.fillStyle = entity.color;
+          this.ctx.fillRect(x, y, size, size);
+          if (
+            entity.type === 'player' &&
+            entity.name &&
+            !labeledPlayerIds.has(entity.id)
+          ) {
+            labeledPlayerIds.add(entity.id);
+            players.push({ entity, x, y, size });
+          }
+        },
+      );
     }
 
     for (const { entity, x, y, size } of players) {
@@ -536,8 +657,10 @@ class GameClient {
     this.player = null;
     this.spectatorX = Math.random() * this.worldWidth;
     this.spectatorY = Math.random() * this.worldHeight;
-    this.spectatorDX = (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.3);
-    this.spectatorDY = (Math.random() > 0.5 ? 1 : -1) * (0.2 + Math.random() * 0.2);
+    this.spectatorDX =
+      (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.3);
+    this.spectatorDY =
+      (Math.random() > 0.5 ? 1 : -1) * (0.2 + Math.random() * 0.2);
     this.socket.on('pong-check', () => {
       this.ping = Date.now() - this.pingStart;
       this.#updatePingDisplay();
