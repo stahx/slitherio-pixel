@@ -5,7 +5,6 @@ class Tail extends Entity {
     super(x, y, options);
     this.playerId = options.playerId;
     this.color = options.color || '#ffffff';
-    this.size = options.size || 10;
   }
 }
 

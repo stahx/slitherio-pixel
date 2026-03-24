@@ -124,8 +124,19 @@ class GameServer {
       const players = this.#getPlayerEntities();
 
       for (const player of players) {
-        player.diffX = player.mouseX - player.x - player.size / 2;
-        player.diffY = player.mouseY - player.y - player.size / 2;
+        const pcx = player.x + player.size / 2;
+        const pcy = player.y + player.size / 2;
+        let aimDx = player.mouseX - pcx;
+        let aimDy = player.mouseY - pcy;
+        const MW = this.config.MAP_WIDTH;
+        const MH = this.config.MAP_HEIGHT;
+        if (aimDx > MW / 2) aimDx -= MW;
+        else if (aimDx < -MW / 2) aimDx += MW;
+        if (aimDy > MH / 2) aimDy -= MH;
+        else if (aimDy < -MH / 2) aimDy += MH;
+
+        player.diffX = aimDx;
+        player.diffY = aimDy;
 
         let pointDist = Math.sqrt(
           player.diffX * player.diffX + player.diffY * player.diffY
@@ -195,7 +206,6 @@ class GameServer {
           const tailEntity = new Tail(player.x, player.y, {
             playerId: player.playerId,
             color: player.color,
-            size: player.size,
           });
           this.tails.get(player.playerId).push(tailEntity);
           this.allEntities.set(tailEntity.id, tailEntity);
@@ -251,6 +261,45 @@ class GameServer {
     return result;
   }
 
+  #aabbOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+    return (
+      ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by
+    );
+  }
+
+  #aabbOverlapTorus(ax, ay, aw, ah, bx, by, bw, bh, W, H) {
+    for (let kx = -1; kx <= 1; kx++) {
+      for (let ky = -1; ky <= 1; ky++) {
+        const px = bx + kx * W;
+        const py = by + ky * H;
+        if (this.#aabbOverlap(ax, ay, aw, ah, px, py, bw, bh)) return true;
+      }
+    }
+    return false;
+  }
+
+  #getNearbyCellsTorus(x, y, radius) {
+    const W = this.config.MAP_WIDTH;
+    const H = this.config.MAP_HEIGHT;
+    const seen = new Set();
+    const out = [];
+    const pushChunk = (cx, cy) => {
+      const chunk = this.#getNearbyCells(cx, cy, radius);
+      for (let i = 0; i < chunk.length; i++) {
+        const e = chunk[i];
+        if (seen.has(e.id)) continue;
+        seen.add(e.id);
+        out.push(e);
+      }
+    };
+    for (let kx = -1; kx <= 1; kx++) {
+      for (let ky = -1; ky <= 1; ky++) {
+        pushChunk(x + kx * W, y + ky * H);
+      }
+    }
+    return out;
+  }
+
   #killPlayer(player) {
     const spawnPoints = player.points;
     const tailEntities = this.#getTailEntities(player.playerId);
@@ -265,15 +314,23 @@ class GameServer {
   }
 
   #detectPointCollisions(player) {
-    const nearby = this.#getNearbyCells(player.x, player.y, player.size + 25);
-
-    for (const point of nearby) {
-      if (point.type !== 'point') continue;
+    const W = this.config.MAP_WIDTH;
+    const H = this.config.MAP_HEIGHT;
+    const pw = player.size;
+    for (const point of this.points.values()) {
       if (
-        (player.x >= point.x || player.x + player.size >= point.x) &&
-        (player.y >= point.y || player.y + player.size >= point.y) &&
-        player.x <= point.x + point.size &&
-        player.y <= point.y + point.size
+        this.#aabbOverlapTorus(
+          player.x,
+          player.y,
+          pw,
+          pw,
+          point.x,
+          point.y,
+          point.size,
+          point.size,
+          W,
+          H,
+        )
       ) {
         this.#pickPoint(player, point);
         break;
@@ -282,7 +339,14 @@ class GameServer {
   }
 
   #detectTailCollisions(player) {
-    const nearby = this.#getNearbyCells(player.x, player.y, player.size + 25);
+    const W = this.config.MAP_WIDTH;
+    const H = this.config.MAP_HEIGHT;
+    const pw = player.size;
+    const nearby = this.#getNearbyCellsTorus(
+      player.x,
+      player.y,
+      player.size + 25,
+    );
 
     for (const tailEntity of nearby) {
       if (tailEntity.type !== 'tail') continue;
@@ -293,11 +357,20 @@ class GameServer {
       const tailPlayer = this.#getPlayerEntity(tailEntity.playerId);
       if (!tailPlayer) continue;
 
+      const tw = tailPlayer.size;
       if (
-        (player.x >= tailEntity.x || player.x + player.size >= tailEntity.x) &&
-        (player.y >= tailEntity.y || player.y + player.size >= tailEntity.y) &&
-        player.x <= tailEntity.x + tailPlayer.size &&
-        player.y <= tailEntity.y + tailPlayer.size
+        this.#aabbOverlapTorus(
+          player.x,
+          player.y,
+          pw,
+          pw,
+          tailEntity.x,
+          tailEntity.y,
+          tw,
+          tw,
+          W,
+          H,
+        )
       ) {
         this.#killPlayer(player);
         break;
@@ -392,9 +465,11 @@ class GameServer {
       t: e.type === 'point' ? 0 : e.type === 'tail' ? 1 : 2,
       x: Math.round(e.x),
       y: Math.round(e.y),
-      s: Math.round(e.size),
       c: e.color,
     };
+    if (e.type !== 'tail') {
+      base.s = Math.round(e.size);
+    }
     if (e.type === 'player') {
       base.p = e.playerId;
       base.n = e.name;
@@ -449,12 +524,24 @@ class GameServer {
           const prev = prevVisible.get(entity.id);
           const rx = Math.round(entity.x);
           const ry = Math.round(entity.y);
-          const rs = Math.round(entity.size);
-          if (prev.x !== rx || prev.y !== ry || prev.s !== rs || (entity.type === 'player' && prev.pt !== entity.points)) {
-            const upd = { i: entity.id, x: rx, y: ry };
-            if (prev.s !== rs) upd.s = rs;
-            if (entity.type === 'player' && prev.pt !== entity.points) upd.pt = entity.points;
-            updated.push(upd);
+          if (entity.type === 'tail') {
+            if (prev.x !== rx || prev.y !== ry) {
+              updated.push({ i: entity.id, x: rx, y: ry });
+            }
+          } else {
+            const rs = Math.round(entity.size);
+            if (
+              prev.x !== rx ||
+              prev.y !== ry ||
+              prev.s !== rs ||
+              (entity.type === 'player' && prev.pt !== entity.points)
+            ) {
+              const upd = { i: entity.id, x: rx, y: ry };
+              if (prev.s !== rs) upd.s = rs;
+              if (entity.type === 'player' && prev.pt !== entity.points)
+                upd.pt = entity.points;
+              updated.push(upd);
+            }
           }
         }
       }
@@ -467,12 +554,21 @@ class GameServer {
 
       const newPrevMap = new Map();
       for (const [id, entity] of currentVisible) {
-        newPrevMap.set(id, {
-          x: Math.round(entity.x),
-          y: Math.round(entity.y),
-          s: Math.round(entity.size),
-          pt: entity.points,
-        });
+        if (entity.type === 'tail') {
+          newPrevMap.set(id, {
+            x: Math.round(entity.x),
+            y: Math.round(entity.y),
+            s: 0,
+            pt: entity.points,
+          });
+        } else {
+          newPrevMap.set(id, {
+            x: Math.round(entity.x),
+            y: Math.round(entity.y),
+            s: Math.round(entity.size),
+            pt: entity.points,
+          });
+        }
       }
       this.playerState.set(player.playerId, newPrevMap);
 
@@ -502,12 +598,24 @@ class GameServer {
           const prev = prevVisible.get(entity.id);
           const rx = Math.round(entity.x);
           const ry = Math.round(entity.y);
-          const rs = Math.round(entity.size);
-          if (prev.x !== rx || prev.y !== ry || prev.s !== rs || (entity.type === 'player' && prev.pt !== entity.points)) {
-            const upd = { i: entity.id, x: rx, y: ry };
-            if (prev.s !== rs) upd.s = rs;
-            if (entity.type === 'player' && prev.pt !== entity.points) upd.pt = entity.points;
-            updated.push(upd);
+          if (entity.type === 'tail') {
+            if (prev.x !== rx || prev.y !== ry) {
+              updated.push({ i: entity.id, x: rx, y: ry });
+            }
+          } else {
+            const rs = Math.round(entity.size);
+            if (
+              prev.x !== rx ||
+              prev.y !== ry ||
+              prev.s !== rs ||
+              (entity.type === 'player' && prev.pt !== entity.points)
+            ) {
+              const upd = { i: entity.id, x: rx, y: ry };
+              if (prev.s !== rs) upd.s = rs;
+              if (entity.type === 'player' && prev.pt !== entity.points)
+                upd.pt = entity.points;
+              updated.push(upd);
+            }
           }
         }
       }
@@ -520,12 +628,21 @@ class GameServer {
 
       const newPrevMap = new Map();
       for (const [id, entity] of currentVisible) {
-        newPrevMap.set(id, {
-          x: Math.round(entity.x),
-          y: Math.round(entity.y),
-          s: Math.round(entity.size),
-          pt: entity.points,
-        });
+        if (entity.type === 'tail') {
+          newPrevMap.set(id, {
+            x: Math.round(entity.x),
+            y: Math.round(entity.y),
+            s: 0,
+            pt: entity.points,
+          });
+        } else {
+          newPrevMap.set(id, {
+            x: Math.round(entity.x),
+            y: Math.round(entity.y),
+            s: Math.round(entity.size),
+            pt: entity.points,
+          });
+        }
       }
       this.spectators.set(socketId, newPrevMap);
 

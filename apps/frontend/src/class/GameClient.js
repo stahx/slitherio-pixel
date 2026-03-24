@@ -47,6 +47,7 @@ class GameClient {
     this.gameRunning = false;
     this.escMenuOpen = false;
     this.escMenu = document.querySelector('#esc-menu');
+    this.themeToggle = document.querySelector('#theme-toggle');
     this.pingElement = document.querySelector('#ping-value');
     this.ping = 0;
 
@@ -72,6 +73,13 @@ class GameClient {
     this.#setupUpdateHandler();
     this.#initCanvas();
     if (this.isMobile) this.#createMobileControls();
+    this.#syncThemeToggleVisibility();
+  }
+
+  #syncThemeToggleVisibility() {
+    if (!this.themeToggle) return;
+    const show = !this.gameRunning || this.escMenuOpen;
+    this.themeToggle.style.display = show ? 'flex' : 'none';
   }
 
   async #initCanvas() {
@@ -128,6 +136,7 @@ class GameClient {
     this.game.style.display = 'block';
     this.gameRunning = true;
     this.#showMobileControls();
+    this.#syncThemeToggleVisibility();
   }
 
   #createMobileControls() {
@@ -281,16 +290,17 @@ class GameClient {
             type: typeMap[e.t],
             x: e.x,
             y: e.y,
-            size: e.s,
             color: e.c,
             playerId: e.p,
             name: e.n,
             points: e.pt,
           };
+          if (e.s !== undefined) entity.size = e.s;
           this.entityMap.set(e.i, entity);
 
-          this.prevPositions.set(e.i, { x: e.x, y: e.y, size: e.s });
-          this.targetPositions.set(e.i, { x: e.x, y: e.y, size: e.s });
+          const sz = typeMap[e.t] === 'tail' ? 0 : e.s;
+          this.prevPositions.set(e.i, { x: e.x, y: e.y, size: sz });
+          this.targetPositions.set(e.i, { x: e.x, y: e.y, size: sz });
 
           if (entity.type === 'player' && entity.playerId == this.socket.id) {
             this.player = entity;
@@ -299,27 +309,69 @@ class GameClient {
       }
 
       if (data.u) {
+        const alphaCatchUp = Math.min(
+          1,
+          (performance.now() - this.lastUpdateTime) / SERVER_TICK_MS,
+        );
+        const W = this.worldWidth;
+        const H = this.worldHeight;
         for (const upd of data.u) {
           const entity = this.entityMap.get(upd.i);
           if (!entity) continue;
 
-          const prev = this.targetPositions.get(upd.i) || {
+          const prevT = this.targetPositions.get(upd.i) || {
             x: entity.x,
             y: entity.y,
             size: entity.size,
           };
+          const prevP = this.prevPositions.get(upd.i);
+
+          let snapX = prevT.x;
+          let snapY = prevT.y;
+          let snapSize = prevT.size;
+          if (prevP) {
+            snapX = this.#lerp(prevP.x, prevT.x, alphaCatchUp);
+            snapY = this.#lerp(prevP.y, prevT.y, alphaCatchUp);
+            if (entity.type !== 'tail') {
+              snapSize = this.#lerp(prevP.size, prevT.size, alphaCatchUp);
+            }
+          }
+
           this.prevPositions.set(upd.i, {
-            x: prev.x,
-            y: prev.y,
-            size: prev.size,
+            x: snapX,
+            y: snapY,
+            size: entity.type === 'tail' ? 0 : snapSize,
           });
 
+          let targetUwX = prevT.x;
+          let targetUwY = prevT.y;
+          if (entity.type === 'tail') {
+            if (upd.x !== undefined) targetUwX = upd.x;
+            if (upd.y !== undefined) targetUwY = upd.y;
+          } else {
+            if (upd.x !== undefined) {
+              targetUwX = this.#liftCanonicalNear(snapX, upd.x, W);
+            }
+            if (upd.y !== undefined) {
+              targetUwY = this.#liftCanonicalNear(snapY, upd.y, H);
+            }
+          }
+
           const newTarget = {
-            x: upd.x !== undefined ? upd.x : prev.x,
-            y: upd.y !== undefined ? upd.y : prev.y,
-            size: upd.s !== undefined ? upd.s : prev.size,
+            x: targetUwX,
+            y: targetUwY,
+            size:
+              entity.type === 'tail'
+                ? 0
+                : upd.s !== undefined
+                  ? upd.s
+                  : prevT.size,
           };
           this.targetPositions.set(upd.i, newTarget);
+
+          if (upd.x !== undefined) entity.x = upd.x;
+          if (upd.y !== undefined) entity.y = upd.y;
+          if (upd.s !== undefined && entity.type !== 'tail') entity.size = upd.s;
 
           if (upd.pt !== undefined) {
             entity.points = upd.pt;
@@ -398,6 +450,10 @@ class GameClient {
     return a + d * t;
   }
 
+  #liftCanonicalNear(snapUw, canon, period) {
+    return canon + Math.round((snapUw - canon) / period) * period;
+  }
+
   #forEachTorusCopy(px, py, size, camX, camY, camR, camB, fn) {
     const W = this.worldWidth;
     const H = this.worldHeight;
@@ -418,6 +474,19 @@ class GameClient {
   #drawTiledBackground(camX, camY, camR, camB) {
     const W = this.worldWidth;
     const H = this.worldHeight;
+    const cs = getComputedStyle(document.documentElement);
+    const tileFill =
+      cs.getPropertyValue('--canvas-tile-fill').trim() || '#121214';
+    const gridStroke =
+      cs.getPropertyValue('--canvas-grid').trim() ||
+      'rgba(255, 255, 255, 0.035)';
+    const wrapBorder =
+      cs.getPropertyValue('--canvas-wrap-border').trim() ||
+      'rgba(251, 146, 60, 0.95)';
+    const wrapWarn =
+      cs.getPropertyValue('--canvas-wrap-warning').trim() ||
+      'rgba(249, 115, 22, 0.22)';
+    const WARN = 220;
     const minKx = Math.floor(camX / W) - 1;
     const maxKx = Math.ceil(camR / W) + 1;
     const minKy = Math.floor(camY / H) - 1;
@@ -426,14 +495,55 @@ class GameClient {
       for (let ky = minKy; ky <= maxKy; ky++) {
         const ox = kx * W;
         const oy = ky * H;
-        this.ctx.fillStyle = 'rgb(18, 18, 18)';
+        this.ctx.fillStyle = tileFill;
         this.ctx.fillRect(ox, oy, W, H);
+      }
+    }
+    this.ctx.save();
+    this.ctx.beginPath();
+    this.ctx.rect(camX, camY, camR - camX, camB - camY);
+    this.ctx.clip();
+    for (let kx = minKx; kx <= maxKx; kx++) {
+      for (let ky = minKy; ky <= maxKy; ky++) {
+        const ox = kx * W;
+        const oy = ky * H;
+        let g = this.ctx.createLinearGradient(ox, oy, ox + WARN, oy);
+        g.addColorStop(0, wrapWarn);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        this.ctx.fillStyle = g;
+        this.ctx.fillRect(ox, oy, WARN, H);
+        g = this.ctx.createLinearGradient(ox + W - WARN, oy, ox + W, oy);
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(1, wrapWarn);
+        this.ctx.fillStyle = g;
+        this.ctx.fillRect(ox + W - WARN, oy, WARN, H);
+        g = this.ctx.createLinearGradient(ox, oy, ox, oy + WARN);
+        g.addColorStop(0, wrapWarn);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        this.ctx.fillStyle = g;
+        this.ctx.fillRect(ox, oy, W, WARN);
+        g = this.ctx.createLinearGradient(ox, oy + H - WARN, ox, oy + H);
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(1, wrapWarn);
+        this.ctx.fillStyle = g;
+        this.ctx.fillRect(ox, oy + H - WARN, W, WARN);
+      }
+    }
+    this.ctx.restore();
+    this.ctx.strokeStyle = wrapBorder;
+    this.ctx.lineWidth = 5;
+    this.ctx.lineJoin = 'miter';
+    for (let kx = minKx; kx <= maxKx; kx++) {
+      for (let ky = minKy; ky <= maxKy; ky++) {
+        const ox = kx * W;
+        const oy = ky * H;
+        this.ctx.strokeRect(ox + 2.5, oy + 2.5, W - 5, H - 5);
       }
     }
     const step = 160;
     const gx0 = Math.floor(camX / step) * step;
     const gy0 = Math.floor(camY / step) * step;
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    this.ctx.strokeStyle = gridStroke;
     for (let x = gx0; x <= camR + step; x += step) {
       this.ctx.beginPath();
       this.ctx.moveTo(x, camY);
@@ -448,16 +558,42 @@ class GameClient {
     }
   }
 
+  #findPlayerByPlayerId(playerId) {
+    for (const e of this.entityMap.values()) {
+      if (e.type === 'player' && e.playerId === playerId) return e;
+    }
+    return null;
+  }
+
   #getRenderPos(entity, alpha) {
+    if (entity.type === 'tail') {
+      const owner = this.#findPlayerByPlayerId(entity.playerId);
+      const osize = owner ? this.#getRenderPos(owner, alpha).size : 10;
+      const prev = this.prevPositions.get(entity.id);
+      const target = this.targetPositions.get(entity.id);
+      if (!prev || !target) {
+        return { x: entity.x, y: entity.y, size: osize };
+      }
+      const W = this.worldWidth;
+      const H = this.worldHeight;
+      const tx = this.#torusLerp(prev.x, target.x, alpha, W);
+      const ty = this.#torusLerp(prev.y, target.y, alpha, H);
+      if (!owner) return { x: tx, y: ty, size: osize };
+      const refPos = this.#getRenderPos(owner, alpha);
+      return {
+        x: tx + Math.round((refPos.x - tx) / W) * W,
+        y: ty + Math.round((refPos.y - ty) / H) * H,
+        size: osize,
+      };
+    }
+
     const prev = this.prevPositions.get(entity.id);
     const target = this.targetPositions.get(entity.id);
     if (!prev || !target)
       return { x: entity.x, y: entity.y, size: entity.size };
-    const W = this.worldWidth;
-    const H = this.worldHeight;
     return {
-      x: this.#torusLerp(prev.x, target.x, alpha, W),
-      y: this.#torusLerp(prev.y, target.y, alpha, H),
+      x: this.#lerp(prev.x, target.x, alpha),
+      y: this.#lerp(prev.y, target.y, alpha),
       size: this.#lerp(prev.size, target.size, alpha),
     };
   }
@@ -633,11 +769,13 @@ class GameClient {
     } else {
       this.escMenu.style.display = 'none';
     }
+    this.#syncThemeToggleVisibility();
   }
 
   resumeGame() {
     this.escMenuOpen = false;
     this.escMenu.style.display = 'none';
+    this.#syncThemeToggleVisibility();
   }
 
   returnToMenu() {
@@ -647,6 +785,7 @@ class GameClient {
     this.game.style.display = 'none';
     this.leaderboardElement.style.display = 'none';
     this.menu.style.display = 'flex';
+    this.#syncThemeToggleVisibility();
     this.#hideMobileControls();
     clearInterval(this.pingIntervalId);
     this.socket.disconnect();
