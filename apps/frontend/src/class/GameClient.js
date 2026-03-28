@@ -49,6 +49,9 @@ class GameClient {
     this.escMenu = document.querySelector('#esc-menu');
     this.themeToggle = document.querySelector('#theme-toggle');
     this.pingElement = document.querySelector('#ping-value');
+    this.fpsElement = document.querySelector('#fps-value');
+    this._fpsFrameCount = 0;
+    this._fpsLastTime = 0;
     this.ping = 0;
 
     this.isMobile = !window.matchMedia('(any-pointer: fine)').matches;
@@ -71,6 +74,7 @@ class GameClient {
     });
     this.#startPingInterval();
     this.#setupUpdateHandler();
+    this.#createMinimap();
     this.#initCanvas();
     if (this.isMobile) this.#createMobileControls();
     this.#syncThemeToggleVisibility();
@@ -80,6 +84,98 @@ class GameClient {
     if (!this.themeToggle) return;
     const show = !this.gameRunning || this.escMenuOpen;
     this.themeToggle.style.display = show ? 'flex' : 'none';
+  }
+
+  #createMinimap() {
+    const wrapper = document.createElement('div');
+    wrapper.id = 'minimap-wrapper';
+    const mc = document.createElement('canvas');
+    mc.id = 'minimap';
+    const size = this.isMobile ? 100 : 160;
+    mc.width = size;
+    mc.height = size;
+    wrapper.appendChild(mc);
+    document.body.appendChild(wrapper);
+
+    const toggle = document.createElement('button');
+    toggle.id = 'minimap-toggle';
+    toggle.textContent = 'M';
+    document.body.appendChild(toggle);
+
+    this.minimapWrapper = wrapper;
+    this.minimapCanvas = mc;
+    this.minimapCtx = mc.getContext('2d');
+    this.minimapToggle = toggle;
+    this.minimapVisible = true;
+
+    mc.addEventListener('click', () => {
+      this.minimapVisible = false;
+      wrapper.style.display = 'none';
+      toggle.style.display = 'flex';
+    });
+
+    toggle.addEventListener('click', () => {
+      this.minimapVisible = true;
+      wrapper.style.display = 'block';
+      toggle.style.display = 'none';
+    });
+  }
+
+  #drawMinimap() {
+    if (!this.minimapVisible || !this.gameRunning) return;
+
+    const mc = this.minimapCanvas;
+    const mctx = this.minimapCtx;
+    const w = mc.width;
+    const h = mc.height;
+    const scaleX = w / this.worldWidth;
+    const scaleY = h / this.worldHeight;
+
+    mctx.clearRect(0, 0, w, h);
+
+    const cs = getComputedStyle(document.documentElement);
+    const surfaceColor = cs.getPropertyValue('--canvas-tile-fill').trim() || '#121214';
+    mctx.fillStyle = surfaceColor;
+    mctx.fillRect(0, 0, w, h);
+
+    mctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    mctx.lineWidth = 1;
+    mctx.strokeRect(0, 0, w, h);
+
+    for (const entity of this.entityMap.values()) {
+      const mx = entity.x * scaleX;
+      const my = entity.y * scaleY;
+
+      if (entity.type === 'point') {
+        const c = entity.color || '#ffffff';
+        const r = parseInt(c.slice(1, 3), 16) || 255;
+        const g = parseInt(c.slice(3, 5), 16) || 255;
+        const b = parseInt(c.slice(5, 7), 16) || 255;
+        mctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
+        mctx.fillRect(mx, my, 2, 2);
+      } else if (entity.type === 'tail') {
+        mctx.fillStyle = entity.color;
+        mctx.fillRect(mx, my, 2, 2);
+      } else if (entity.type === 'player') {
+        mctx.fillStyle = entity.color;
+        mctx.fillRect(mx - 1, my - 1, 3, 3);
+      }
+    }
+
+    if (this.player) {
+      const px = this.player.x * scaleX;
+      const py = this.player.y * scaleY;
+      mctx.fillStyle = '#ffffff';
+      mctx.fillRect(px - 2, py - 2, 5, 5);
+
+      const vx = this.cameraX * scaleX;
+      const vy = this.cameraY * scaleY;
+      const vw = this.canvas.width * scaleX;
+      const vh = this.canvas.height * scaleY;
+      mctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      mctx.lineWidth = 1;
+      mctx.strokeRect(vx, vy, vw, vh);
+    }
   }
 
   async #initCanvas() {
@@ -137,6 +233,13 @@ class GameClient {
     this.gameRunning = true;
     this.#showMobileControls();
     this.#syncThemeToggleVisibility();
+    if (this.minimapVisible) {
+      this.minimapWrapper.style.display = 'block';
+      this.minimapToggle.style.display = 'none';
+    } else {
+      this.minimapWrapper.style.display = 'none';
+      this.minimapToggle.style.display = 'flex';
+    }
   }
 
   #createMobileControls() {
@@ -146,9 +249,9 @@ class GameClient {
     outer.id = 'joystick-outer';
     const inner = document.createElement('div');
     inner.id = 'joystick-inner';
-    joystickZone.appendChild(outer);
-    joystickZone.appendChild(inner);
     document.body.appendChild(joystickZone);
+    document.body.appendChild(outer);
+    document.body.appendChild(inner);
 
     const boostBtn = document.createElement('div');
     boostBtn.id = 'boost-button';
@@ -156,6 +259,7 @@ class GameClient {
     document.body.appendChild(boostBtn);
 
     this.joystickZone = joystickZone;
+    this.joystickOuter = outer;
     this.joystickInner = inner;
     this.boostButton = boostBtn;
   }
@@ -175,9 +279,11 @@ class GameClient {
   #bindMobileInput() {
     const zone = this.joystickZone;
     const knob = this.joystickInner;
-    const radius = 70;
-    const maxDist = radius - 25;
+    const joystickOuter = this.joystickOuter;
+    const maxDist = 55;
     let lastDirEmit = 0;
+    let originX = 0;
+    let originY = 0;
 
     const emitDirection = (angle) => {
       if (this.escMenuOpen || !this.player) return;
@@ -202,6 +308,14 @@ class GameClient {
         const touch = e.changedTouches[0];
         this.joystickTouchId = touch.identifier;
         this.joystickActive = true;
+        originX = touch.clientX;
+        originY = touch.clientY;
+        joystickOuter.style.left = `${originX - 70}px`;
+        joystickOuter.style.top = `${originY - 70}px`;
+        joystickOuter.style.opacity = '1';
+        knob.style.left = `${originX}px`;
+        knob.style.top = `${originY}px`;
+        knob.style.transform = 'translate(-50%, -50%)';
       },
       { passive: false },
     );
@@ -212,17 +326,16 @@ class GameClient {
         e.preventDefault();
         for (const touch of e.changedTouches) {
           if (touch.identifier !== this.joystickTouchId) continue;
-          const rect = zone.getBoundingClientRect();
-          const cx = rect.left + rect.width / 2;
-          const cy = rect.top + rect.height / 2;
-          let dx = touch.clientX - cx;
-          let dy = touch.clientY - cy;
+          let dx = touch.clientX - originX;
+          let dy = touch.clientY - originY;
           const dist = Math.sqrt(dx * dx + dy * dy);
           const clampedDist = Math.min(dist, maxDist);
           const angle = Math.atan2(dy, dx);
           const knobX = Math.cos(angle) * clampedDist;
           const knobY = Math.sin(angle) * clampedDist;
-          knob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+          knob.style.left = `${originX + knobX}px`;
+          knob.style.top = `${originY + knobY}px`;
+          knob.style.transform = 'translate(-50%, -50%)';
           if (clampedDist > 5) emitDirection(angle);
         }
       },
@@ -234,7 +347,10 @@ class GameClient {
         if (touch.identifier !== this.joystickTouchId) continue;
         this.joystickTouchId = null;
         this.joystickActive = false;
+        joystickOuter.style.opacity = '0';
         knob.style.transform = 'translate(-50%, -50%)';
+        knob.style.left = `${originX}px`;
+        knob.style.top = `${originY}px`;
       }
     };
 
@@ -277,6 +393,9 @@ class GameClient {
     this.player = null;
     this.isSpaceHeld = false;
     this._uiDirty = false;
+    this._fpsFrameCount = 0;
+    this._fpsLastTime = 0;
+    this.minimapVisible = true;
   }
 
   #joinPlayer(name) {
@@ -418,6 +537,19 @@ class GameClient {
   }
 
   #gameLoop(timestamp) {
+    this._fpsFrameCount++;
+    if (this._fpsLastTime === 0) {
+      this._fpsLastTime = timestamp;
+    } else {
+      const elapsed = timestamp - this._fpsLastTime;
+      if (elapsed >= 500) {
+        const fps = Math.round((this._fpsFrameCount / elapsed) * 1000);
+        if (this.fpsElement) this.fpsElement.textContent = `${fps} fps`;
+        this._fpsFrameCount = 0;
+        this._fpsLastTime = timestamp;
+      }
+    }
+
     const alpha = Math.min(
       1,
       (performance.now() - this.lastUpdateTime) / SERVER_TICK_MS,
@@ -674,6 +806,7 @@ class GameClient {
     }
 
     this.ctx.restore();
+    this.#drawMinimap();
   }
 
   #cameraFollow(alpha) {
@@ -798,6 +931,8 @@ class GameClient {
     this.menu.style.display = 'flex';
     this.#syncThemeToggleVisibility();
     this.#hideMobileControls();
+    this.minimapWrapper.style.display = 'none';
+    this.minimapToggle.style.display = 'none';
     this.#resetState();
     clearInterval(this.pingIntervalId);
     this.socket.disconnect();
