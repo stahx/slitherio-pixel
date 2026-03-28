@@ -1,0 +1,13 @@
+---
+description: When the user reports a visual bug or glitch, use the browser MCP to test it before proposing fixes
+alwaysApply: true
+---
+
+# Bug Testing with Browser MCP
+
+When the user reports a visual bug, rendering glitch, or UI issue:
+
+1. **Test first** — Navigate to `http://localhost:3000` using the browser MCP, join the game, and reproduce the issue before writing any fix
+2. **Take screenshots** — Use `browser_take_screenshot` to capture evidence of the bug
+3. **Verify fixes** — After applying a fix, test again via the browser MCP to confirm it's resolved
+4. **Lock the browser** — Always call `browser_lock` before interacting, and `browser_unlock` when done

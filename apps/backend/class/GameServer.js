@@ -71,7 +71,7 @@ class GameServer {
         this.players.set(socket.id, playerEntity);
         this.allEntities.set(playerEntity.id, playerEntity);
         this.tails.set(socket.id, []);
-        this.playerState.set(socket.id, this.spectators.get(socket.id) || new Map());
+        this.playerState.set(socket.id, new Map());
         this.spectators.delete(socket.id);
         this.#emitUpdate();
       });
