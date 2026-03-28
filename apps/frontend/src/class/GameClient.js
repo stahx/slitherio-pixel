@@ -269,7 +269,18 @@ class GameClient {
     boost.addEventListener('touchcancel', stopBoost, { passive: false });
   }
 
+  #resetState() {
+    this.entityMap.clear();
+    this.prevPositions.clear();
+    this.targetPositions.clear();
+    this.leaderboard = [];
+    this.player = null;
+    this.isSpaceHeld = false;
+    this._uiDirty = false;
+  }
+
   #joinPlayer(name) {
+    this.#resetState();
     this.socket.emit('player-join', { name });
   }
 
@@ -787,13 +798,10 @@ class GameClient {
     this.menu.style.display = 'flex';
     this.#syncThemeToggleVisibility();
     this.#hideMobileControls();
+    this.#resetState();
     clearInterval(this.pingIntervalId);
     this.socket.disconnect();
     this.socket = io('');
-    this.entityMap.clear();
-    this.prevPositions.clear();
-    this.targetPositions.clear();
-    this.player = null;
     this.spectatorX = Math.random() * this.worldWidth;
     this.spectatorY = Math.random() * this.worldHeight;
     this.spectatorDX =
