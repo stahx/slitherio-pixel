@@ -8,6 +8,7 @@ export default class Config {
       BOOST_SPEED,
       TICK_RATE,
       FOG_RADIUS,
+      MIN_PLAYERS = 5,
     } = config;
 
     this.MAP_WIDTH = MAP_WIDTH;
@@ -17,5 +18,6 @@ export default class Config {
     this.BOOST_SPEED = BOOST_SPEED;
     this.TICK_RATE = TICK_RATE;
     this.FOG_RADIUS = FOG_RADIUS;
+    this.MIN_PLAYERS = MIN_PLAYERS;
   }
 }

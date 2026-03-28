@@ -2,6 +2,7 @@ import Player from './Player.js';
 import Tail from './Tail.js';
 import Point from './Point.js';
 import Config from './Config.js';
+import BotManager from './BotManager.js';
 
 import {
   getRandomPosition,
@@ -31,6 +32,8 @@ class GameServer {
     this.spectators = new Map();
 
     this.grid = new Map();
+
+    this.botManager = new BotManager(this);
 
     this.io.on('connection', (socket) => {
       const initialSnapshot = [];
@@ -73,6 +76,7 @@ class GameServer {
         this.tails.set(socket.id, []);
         this.playerState.set(socket.id, new Map());
         this.spectators.delete(socket.id);
+        this.botManager.reconcile();
         this.#emitUpdate();
       });
 
@@ -94,7 +98,8 @@ class GameServer {
       socket.on('disconnect', () => {
         this.playerState.delete(socket.id);
         this.spectators.delete(socket.id);
-        this.#removePlayerEntities(socket.id);
+        this.removePlayerEntities(socket.id);
+        this.botManager.reconcile();
         this.#emitUpdate();
       });
 
@@ -111,6 +116,7 @@ class GameServer {
   start() {
     this.#mainLoop();
     this.#generatePoints(this.config.POINTS_AMOUNT);
+    this.botManager.reconcile();
 
     this.running = true;
   }
@@ -165,6 +171,29 @@ class GameServer {
         // Use the limited angle for movement direction
         player.diffX = Math.cos(player.currentAngle);
         player.diffY = Math.sin(player.currentAngle);
+
+        if (player.speed && player.points <= 0) {
+          player.speed = false;
+          if (!this.botManager.isBot(player.playerId)) {
+            this.io.to(player.playerId).emit('boost-stop');
+          }
+        }
+
+        if (player.speed) {
+          if (!player._boostTick) player._boostTick = 0;
+          player._boostTick++;
+          if (player._boostTick % 10 === 0) {
+            player.points = Math.max(0, player.points - 1);
+            const tailArr = this.tails.get(player.playerId);
+            if (tailArr && tailArr.length > 0) {
+              const shed = tailArr.shift();
+              this.allEntities.delete(shed.id);
+              this.#generatePoint(shed.x, shed.y);
+            }
+          }
+        } else {
+          player._boostTick = 0;
+        }
 
         const moveX = player.speed
           ? player.diffX * this.config.BOOST_SPEED
@@ -222,6 +251,9 @@ class GameServer {
 
         player.size = calculatePlayerNewSize(player);
       }
+
+      this.botManager.tick();
+
       this.#emitUpdate();
     }, 1000 / this.config.TICK_RATE);
   }
@@ -278,7 +310,7 @@ class GameServer {
     return false;
   }
 
-  #getNearbyCellsTorus(x, y, radius) {
+  getNearbyCellsTorus(x, y, radius) {
     const W = this.config.MAP_WIDTH;
     const H = this.config.MAP_HEIGHT;
     const seen = new Set();
@@ -312,8 +344,13 @@ class GameServer {
       this.#generatePoint(seg.x, seg.y);
     }
 
-    this.io.to(player.playerId).emit('ded');
-    this.#removePlayerEntities(player.playerId);
+    if (this.botManager.isBot(player.playerId)) {
+      this.botManager.remove(player.playerId);
+      this.botManager.reconcile();
+    } else {
+      this.io.to(player.playerId).emit('ded');
+      this.removePlayerEntities(player.playerId);
+    }
   }
 
   #detectPointCollisions(player) {
@@ -345,7 +382,7 @@ class GameServer {
     const W = this.config.MAP_WIDTH;
     const H = this.config.MAP_HEIGHT;
     const pw = player.size;
-    const nearby = this.#getNearbyCellsTorus(
+    const nearby = this.getNearbyCellsTorus(
       player.x,
       player.y,
       player.size + 25,
@@ -426,7 +463,7 @@ class GameServer {
     return Array.from(this.points.values());
   }
 
-  #removePlayerEntities(playerId) {
+  removePlayerEntities(playerId) {
     const player = this.players.get(playerId);
     if (player) {
       this.allEntities.delete(player.id);
@@ -450,7 +487,7 @@ class GameServer {
       });
   }
 
-  #torusDistSq(px, py, ex, ey) {
+  torusDistSq(px, py, ex, ey) {
     const W = this.config.MAP_WIDTH;
     const H = this.config.MAP_HEIGHT;
     let dx = ex - px;
@@ -478,6 +515,7 @@ class GameServer {
       base.n = e.name;
       base.pt = e.points;
       base.a = Math.round(e.currentAngle * 1000) / 1000;
+      if (e.speed) base.b = 1;
     } else if (e.type === 'tail') {
       base.p = e.playerId;
     }
@@ -502,6 +540,7 @@ class GameServer {
     const FOG_RADIUS_SQ = R * R;
 
     for (const player of players) {
+      if (this.botManager.isBot(player.playerId)) continue;
       const prevVisible = this.playerState.get(player.playerId);
       if (!prevVisible) continue;
 
@@ -516,7 +555,7 @@ class GameServer {
 
       for (const entity of this.allEntities.values()) {
         if (
-          this.#torusDistSq(playerX, playerY, entity.x, entity.y) > FOG_RADIUS_SQ
+          this.torusDistSq(playerX, playerY, entity.x, entity.y) > FOG_RADIUS_SQ
         )
           continue;
 
@@ -535,17 +574,19 @@ class GameServer {
           } else {
             const rs = Math.round(entity.size);
             const ra = entity.type === 'player' ? Math.round(entity.currentAngle * 1000) / 1000 : undefined;
+            const rb = entity.type === 'player' ? (entity.speed ? 1 : 0) : undefined;
             if (
               prev.x !== rx ||
               prev.y !== ry ||
               prev.s !== rs ||
-              (entity.type === 'player' && (prev.pt !== entity.points || prev.a !== ra))
+              (entity.type === 'player' && (prev.pt !== entity.points || prev.a !== ra || prev.b !== rb))
             ) {
               const upd = { i: entity.id, x: rx, y: ry };
               if (prev.s !== rs) upd.s = rs;
               if (entity.type === 'player') {
                 if (prev.pt !== entity.points) upd.pt = entity.points;
                 upd.a = ra;
+                upd.b = rb;
               }
               updated.push(upd);
             }
@@ -577,6 +618,7 @@ class GameServer {
           };
           if (entity.type === 'player') {
             entry.a = Math.round(entity.currentAngle * 1000) / 1000;
+            entry.b = entity.speed ? 1 : 0;
           }
           newPrevMap.set(id, entry);
         }
@@ -616,17 +658,19 @@ class GameServer {
           } else {
             const rs = Math.round(entity.size);
             const ra = entity.type === 'player' ? Math.round(entity.currentAngle * 1000) / 1000 : undefined;
+            const rb = entity.type === 'player' ? (entity.speed ? 1 : 0) : undefined;
             if (
               prev.x !== rx ||
               prev.y !== ry ||
               prev.s !== rs ||
-              (entity.type === 'player' && (prev.pt !== entity.points || prev.a !== ra))
+              (entity.type === 'player' && (prev.pt !== entity.points || prev.a !== ra || prev.b !== rb))
             ) {
               const upd = { i: entity.id, x: rx, y: ry };
               if (prev.s !== rs) upd.s = rs;
               if (entity.type === 'player') {
                 if (prev.pt !== entity.points) upd.pt = entity.points;
                 upd.a = ra;
+                upd.b = rb;
               }
               updated.push(upd);
             }
@@ -658,6 +702,7 @@ class GameServer {
           };
           if (entity.type === 'player') {
             entry.a = Math.round(entity.currentAngle * 1000) / 1000;
+            entry.b = entity.speed ? 1 : 0;
           }
           newPrevMap.set(id, entry);
         }

@@ -54,6 +54,8 @@ class GameClient {
     this._fpsLastTime = 0;
     this.ping = 0;
 
+    this.boostParticles = [];
+
     this.isMobile = !window.matchMedia('(any-pointer: fine)').matches;
     this.joystickActive = false;
     this.joystickTouchId = null;
@@ -392,6 +394,7 @@ class GameClient {
     this.leaderboard = [];
     this.player = null;
     this.isSpaceHeld = false;
+    this.boostParticles = [];
     this._uiDirty = false;
     this._fpsFrameCount = 0;
     this._fpsLastTime = 0;
@@ -408,6 +411,14 @@ class GameClient {
 
     this.socket.on('ded', () => {
       document.querySelector('#deathscreen').style.display = 'flex';
+    });
+
+    this.socket.on('boost-stop', () => {
+      this.isSpaceHeld = false;
+      this.socket.emit('player-speed', false);
+      if (this.isMobile && this.boostButton) {
+        this.boostButton.classList.remove('active');
+      }
     });
 
     this.socket.on('update', (data) => {
@@ -427,6 +438,7 @@ class GameClient {
           };
           if (e.s !== undefined) entity.size = e.s;
           if (e.a !== undefined) entity.angle = e.a;
+          if (e.b !== undefined) entity._remoteBoosting = !!e.b;
           this.entityMap.set(e.i, entity);
 
           const sz = typeMap[e.t] === 'tail' ? 0 : (e.s || 10);
@@ -512,6 +524,8 @@ class GameClient {
           if (upd.s !== undefined && entity.type !== 'tail') entity.size = upd.s;
           if (upd.a !== undefined) entity.angle = upd.a;
 
+          if (upd.b !== undefined) entity._remoteBoosting = !!upd.b;
+
           if (upd.pt !== undefined) {
             entity.points = upd.pt;
             if (this.player && entity.id === this.player.id) {
@@ -574,6 +588,7 @@ class GameClient {
     }
 
     this.#cameraFollow(alpha);
+    this.#tickBoostParticles(alpha);
     this.#renderFrame(alpha);
     if (this.gameRunning && this._uiDirty) this.#updateUI();
 
@@ -901,6 +916,77 @@ class GameClient {
     });
   }
 
+  #tickBoostParticles(alpha) {
+    for (const [playerId, entity] of this.entityMap) {
+      if (entity.type !== 'player') continue;
+      const isBoosting = this.player && entity.id === this.player.id
+        ? this.isSpaceHeld
+        : entity._remoteBoosting;
+
+      if (!isBoosting) continue;
+
+      const pos = this.#getRenderPos(entity, alpha);
+      const cx = pos.x + (pos.size || 10) / 2;
+      const cy = pos.y + (pos.size || 10) / 2;
+      const angle = pos.angle || 0;
+      const radius = (pos.size || 10) * 0.5;
+
+      for (let i = 0; i < 2; i++) {
+        const spread = (Math.random() - 0.5) * radius * 1.2;
+        const perpX = -Math.sin(angle);
+        const perpY = Math.cos(angle);
+        const backX = -Math.cos(angle);
+        const backY = -Math.sin(angle);
+
+        this.boostParticles.push({
+          x: cx + perpX * spread + backX * radius * 0.6,
+          y: cy + perpY * spread + backY * radius * 0.6,
+          vx: backX * (1.5 + Math.random() * 2) + (Math.random() - 0.5) * 0.8,
+          vy: backY * (1.5 + Math.random() * 2) + (Math.random() - 0.5) * 0.8,
+          life: 1.0,
+          decay: 0.03 + Math.random() * 0.025,
+          size: 2 + Math.random() * 3,
+          color: entity.color,
+        });
+      }
+    }
+
+    for (let i = this.boostParticles.length - 1; i >= 0; i--) {
+      const p = this.boostParticles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life -= p.decay;
+      p.size *= 0.97;
+      if (p.life <= 0) {
+        this.boostParticles.splice(i, 1);
+      }
+    }
+  }
+
+  #drawBoostParticles(camX, camY, camR, camB) {
+    for (const p of this.boostParticles) {
+      const sx = p.x - camX;
+      const sy = p.y - camY;
+      if (sx + p.size < 0 || sx - p.size > camR - camX ||
+          sy + p.size < 0 || sy - p.size > camB - camY) continue;
+
+      const alpha = Math.max(0, p.life);
+      const hex = p.color || '#ffffff';
+      const r = parseInt(hex.slice(1, 3), 16) || 255;
+      const g = parseInt(hex.slice(3, 5), 16) || 255;
+      const b = parseInt(hex.slice(5, 7), 16) || 255;
+
+      this.ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.8})`;
+      const s = Math.max(1, Math.floor(p.size));
+      this.ctx.fillRect(
+        Math.floor(p.x - s / 2),
+        Math.floor(p.y - s / 2),
+        s,
+        s,
+      );
+    }
+  }
+
   #renderFrame(alpha) {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -1023,6 +1109,8 @@ class GameClient {
       this.ctx.fillText(entity.name, textX, textY);
       this.ctx.restore();
     }
+
+    this.#drawBoostParticles(camX, camY, camR, camB);
 
     this.ctx.restore();
     this.#drawMinimap();

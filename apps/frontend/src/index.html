@@ -70,7 +70,7 @@
         >
           Play
         </button>
-        <span class="version-badge">v2.3.1-beta</span>
+        <span class="version-badge"></span>
       </div>
     </div>
     <div
@@ -81,7 +81,7 @@
         <h2>Pause Menu</h2>
         <button onclick="game.resumeGame()">Resume</button>
         <button onclick="game.returnToMenu()">Return to Menu</button>
-        <span class="version-badge">v2.3.1-beta</span>
+        <span class="version-badge"></span>
       </div>
     </div>
     <canvas id="canvas"></canvas>
@@ -204,6 +204,15 @@
       });
 
       const game = new GameClient();
+
+      fetch('/version')
+        .then((r) => r.json())
+        .then(({ version }) => {
+          document.querySelectorAll('.version-badge').forEach((el) => {
+            el.textContent = `v${version}`;
+          });
+        })
+        .catch(() => {});
 
       function restart() {
         game.start(document.querySelector('#name-input').value);

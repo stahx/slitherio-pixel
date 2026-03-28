@@ -1,9 +1,15 @@
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
 dotenv.config();
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const rootPkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
 
 import GameServer from './class/GameServer.js';
 
@@ -30,6 +36,10 @@ const gameConfig = {
 
 const game = new GameServer(io, gameConfig);
 game.start();
+
+app.get('/version', (req, res) => {
+  return res.json({ version: rootPkg.version });
+});
 
 app.get('/health', (req, res) => {
   return res.status(200).send('OK');
