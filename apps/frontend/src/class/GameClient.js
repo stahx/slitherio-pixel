@@ -429,7 +429,7 @@ class GameClient {
           if (e.a !== undefined) entity.angle = e.a;
           this.entityMap.set(e.i, entity);
 
-          const sz = typeMap[e.t] === 'tail' ? 0 : e.s;
+          const sz = typeMap[e.t] === 'tail' ? 0 : (e.s || 10);
           const ang = e.a !== undefined ? e.a : 0;
           this.prevPositions.set(e.i, { x: e.x, y: e.y, size: sz, angle: ang });
           this.targetPositions.set(e.i, { x: e.x, y: e.y, size: sz, angle: ang });
@@ -759,16 +759,21 @@ class GameClient {
   }
 
   #darkenColor(hex, factor) {
+    if (!hex || hex.length < 7) return hex || '#000000';
     const r = Math.max(0, Math.round(parseInt(hex.slice(1, 3), 16) * factor));
     const g = Math.max(0, Math.round(parseInt(hex.slice(3, 5), 16) * factor));
     const b = Math.max(0, Math.round(parseInt(hex.slice(5, 7), 16) * factor));
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    return `#${(r | 0).toString(16).padStart(2, '0')}${(g | 0).toString(16).padStart(2, '0')}${(b | 0).toString(16).padStart(2, '0')}`;
   }
 
   #lightenColor(hex, factor) {
-    const r = Math.min(255, Math.round(parseInt(hex.slice(1, 3), 16) + (255 - parseInt(hex.slice(1, 3), 16)) * factor));
-    const g = Math.min(255, Math.round(parseInt(hex.slice(3, 5), 16) + (255 - parseInt(hex.slice(3, 5), 16)) * factor));
-    const b = Math.min(255, Math.round(parseInt(hex.slice(5, 7), 16) + (255 - parseInt(hex.slice(5, 7), 16)) * factor));
+    if (!hex || hex.length < 7) return hex || '#ffffff';
+    const ri = parseInt(hex.slice(1, 3), 16) || 0;
+    const gi = parseInt(hex.slice(3, 5), 16) || 0;
+    const bi = parseInt(hex.slice(5, 7), 16) || 0;
+    const r = Math.min(255, Math.round(ri + (255 - ri) * factor));
+    const g = Math.min(255, Math.round(gi + (255 - gi) * factor));
+    const b = Math.min(255, Math.round(bi + (255 - bi) * factor));
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
   }
 
