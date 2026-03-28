@@ -426,11 +426,13 @@ class GameClient {
             points: e.pt,
           };
           if (e.s !== undefined) entity.size = e.s;
+          if (e.a !== undefined) entity.angle = e.a;
           this.entityMap.set(e.i, entity);
 
           const sz = typeMap[e.t] === 'tail' ? 0 : e.s;
-          this.prevPositions.set(e.i, { x: e.x, y: e.y, size: sz });
-          this.targetPositions.set(e.i, { x: e.x, y: e.y, size: sz });
+          const ang = e.a !== undefined ? e.a : 0;
+          this.prevPositions.set(e.i, { x: e.x, y: e.y, size: sz, angle: ang });
+          this.targetPositions.set(e.i, { x: e.x, y: e.y, size: sz, angle: ang });
 
           if (entity.type === 'player' && entity.playerId == this.socket.id) {
             this.player = entity;
@@ -459,11 +461,15 @@ class GameClient {
           let snapX = prevT.x;
           let snapY = prevT.y;
           let snapSize = prevT.size;
+          let snapAngle = prevT.angle || 0;
           if (prevP) {
             snapX = this.#lerp(prevP.x, prevT.x, alphaCatchUp);
             snapY = this.#lerp(prevP.y, prevT.y, alphaCatchUp);
             if (entity.type !== 'tail') {
               snapSize = this.#lerp(prevP.size, prevT.size, alphaCatchUp);
+            }
+            if (prevP.angle !== undefined && prevT.angle !== undefined) {
+              snapAngle = this.#angleLerp(prevP.angle, prevT.angle, alphaCatchUp);
             }
           }
 
@@ -471,6 +477,7 @@ class GameClient {
             x: snapX,
             y: snapY,
             size: entity.type === 'tail' ? 0 : snapSize,
+            angle: snapAngle,
           });
 
           let targetUwX = prevT.x;
@@ -496,12 +503,14 @@ class GameClient {
                 : upd.s !== undefined
                   ? upd.s
                   : prevT.size,
+            angle: upd.a !== undefined ? upd.a : (prevT.angle || 0),
           };
           this.targetPositions.set(upd.i, newTarget);
 
           if (upd.x !== undefined) entity.x = upd.x;
           if (upd.y !== undefined) entity.y = upd.y;
           if (upd.s !== undefined && entity.type !== 'tail') entity.size = upd.s;
+          if (upd.a !== undefined) entity.angle = upd.a;
 
           if (upd.pt !== undefined) {
             entity.points = upd.pt;
@@ -586,6 +595,13 @@ class GameClient {
     };
   }
 
+  #angleLerp(a, b, t) {
+    let diff = b - a;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    return a + diff * t;
+  }
+
   #torusLerp(a, b, t, period) {
     let d = b - a;
     if (d > period / 2) d -= period;
@@ -600,14 +616,14 @@ class GameClient {
   #forEachTorusCopy(px, py, size, camX, camY, camR, camB, fn) {
     const W = this.worldWidth;
     const H = this.worldHeight;
-    const minKx = Math.floor((camX - px - size) / W) - 1;
-    const maxKx = Math.ceil((camR - px) / W) + 1;
-    const minKy = Math.floor((camY - py - size) / H) - 1;
-    const maxKy = Math.ceil((camB - py) / H) + 1;
-    for (let kx = minKx; kx <= maxKx; kx++) {
-      for (let ky = minKy; ky <= maxKy; ky++) {
-        const x = px + kx * W;
-        const y = py + ky * H;
+    const camCx = (camX + camR) / 2;
+    const camCy = (camY + camB) / 2;
+    const baseX = px + Math.round((camCx - px) / W) * W;
+    const baseY = py + Math.round((camCy - py) / H) * H;
+    for (let kx = -1; kx <= 1; kx++) {
+      for (let ky = -1; ky <= 1; ky++) {
+        const x = baseX + kx * W;
+        const y = baseY + ky * H;
         if (x + size <= camX || x >= camR || y + size <= camY || y >= camB) continue;
         fn(x, y);
       }
@@ -733,12 +749,151 @@ class GameClient {
     const prev = this.prevPositions.get(entity.id);
     const target = this.targetPositions.get(entity.id);
     if (!prev || !target)
-      return { x: entity.x, y: entity.y, size: entity.size };
+      return { x: entity.x, y: entity.y, size: entity.size, angle: entity.angle || 0 };
     return {
       x: this.#lerp(prev.x, target.x, alpha),
       y: this.#lerp(prev.y, target.y, alpha),
       size: this.#lerp(prev.size, target.size, alpha),
+      angle: this.#angleLerp(prev.angle || 0, target.angle || 0, alpha),
     };
+  }
+
+  #darkenColor(hex, factor) {
+    const r = Math.max(0, Math.round(parseInt(hex.slice(1, 3), 16) * factor));
+    const g = Math.max(0, Math.round(parseInt(hex.slice(3, 5), 16) * factor));
+    const b = Math.max(0, Math.round(parseInt(hex.slice(5, 7), 16) * factor));
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  }
+
+  #lightenColor(hex, factor) {
+    const r = Math.min(255, Math.round(parseInt(hex.slice(1, 3), 16) + (255 - parseInt(hex.slice(1, 3), 16)) * factor));
+    const g = Math.min(255, Math.round(parseInt(hex.slice(3, 5), 16) + (255 - parseInt(hex.slice(3, 5), 16)) * factor));
+    const b = Math.min(255, Math.round(parseInt(hex.slice(5, 7), 16) + (255 - parseInt(hex.slice(5, 7), 16)) * factor));
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  }
+
+  #drawSnakeSegment(cx, cy, radius, color, borderColor) {
+    const r = Math.max(1, Math.floor(radius));
+    const px = Math.floor(radius * 0.25);
+
+    this.ctx.fillStyle = borderColor;
+    this.ctx.fillRect(cx - r, cy - r + px, r * 2, r * 2 - px * 2);
+    this.ctx.fillRect(cx - r + px, cy - r, r * 2 - px * 2, r * 2);
+
+    const inner = Math.max(1, r - px);
+    this.ctx.fillStyle = color;
+    this.ctx.fillRect(cx - inner, cy - inner, inner * 2, inner * 2);
+  }
+
+  #drawSnakeBody(segments, color, size, camX, camY, camR, camB) {
+    if (segments.length === 0) return;
+
+    const radius = size * 0.55;
+    const borderColor = this.#darkenColor(color, 0.6);
+    const bodyColor = color;
+    const bellyColor = this.#lightenColor(color, 0.25);
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const cx = seg.x + size / 2;
+      const cy = seg.y + size / 2;
+
+      this.#forEachTorusCopy(seg.x, seg.y, size, camX, camY, camR, camB, (x, y) => {
+        const drawCx = x + size / 2;
+        const drawCy = y + size / 2;
+        this.#drawSnakeSegment(drawCx, drawCy, radius, bodyColor, borderColor);
+      });
+    }
+
+    const gapThreshold = size * 3;
+    for (let i = 0; i < segments.length - 1; i++) {
+      const a = segments[i];
+      const b = segments[i + 1];
+      const acx = a.x + size / 2;
+      const acy = a.y + size / 2;
+      const bcx = b.x + size / 2;
+      const bcy = b.y + size / 2;
+
+      const W = this.worldWidth;
+      const H = this.worldHeight;
+      let dx = bcx - acx;
+      let dy = bcy - acy;
+      if (dx > W / 2) dx -= W;
+      if (dx < -W / 2) dx += W;
+      if (dy > H / 2) dy -= H;
+      if (dy < -H / 2) dy += H;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > gapThreshold || dist < 0.5) continue;
+
+      const steps = Math.max(1, Math.ceil(dist / (size * 0.4)));
+      for (let s = 1; s < steps; s++) {
+        const t = s / steps;
+        const mx = acx + dx * t;
+        const my = acy + dy * t;
+
+        this.#forEachTorusCopy(mx - size / 2, my - size / 2, size, camX, camY, camR, camB, (x, y) => {
+          this.#drawSnakeSegment(x + size / 2, y + size / 2, radius * 0.9, bodyColor, borderColor);
+        });
+      }
+    }
+
+    const bellyRadius = Math.max(1, Math.floor(radius * 0.35));
+    const px = Math.max(1, Math.floor(radius * 0.25));
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      this.#forEachTorusCopy(seg.x, seg.y, size, camX, camY, camR, camB, (x, y) => {
+        const drawCx = x + size / 2;
+        const drawCy = y + size / 2;
+        this.ctx.fillStyle = bellyColor;
+        this.ctx.fillRect(drawCx - bellyRadius, drawCy - bellyRadius + px, bellyRadius * 2, bellyRadius * 2 - px);
+      });
+    }
+  }
+
+  #drawSnakeHead(headPos, size, color, entity, angle, camX, camY, camR, camB) {
+    const radius = size * 0.6;
+    const borderColor = this.#darkenColor(color, 0.6);
+
+    this.#forEachTorusCopy(headPos.x, headPos.y, size, camX, camY, camR, camB, (x, y) => {
+      const cx = x + size / 2;
+      const cy = y + size / 2;
+
+      this.#drawSnakeSegment(cx, cy, radius, color, borderColor);
+
+      const eyeOffset = radius * 0.4;
+      const eyeSize = Math.max(2, Math.floor(radius * 0.35));
+      const pupilSize = Math.max(1, Math.floor(eyeSize * 0.5));
+
+      const perpX = -Math.sin(angle);
+      const perpY = Math.cos(angle);
+      const fwdX = Math.cos(angle);
+      const fwdY = Math.sin(angle);
+
+      const eyeFwd = radius * 0.25;
+      for (let side = -1; side <= 1; side += 2) {
+        const ex = cx + perpX * eyeOffset * side + fwdX * eyeFwd;
+        const ey = cy + perpY * eyeOffset * side + fwdY * eyeFwd;
+
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.fillRect(
+          Math.floor(ex - eyeSize / 2),
+          Math.floor(ey - eyeSize / 2),
+          eyeSize,
+          eyeSize,
+        );
+
+        const px = ex + fwdX * pupilSize * 0.3;
+        const py = ey + fwdY * pupilSize * 0.3;
+        this.ctx.fillStyle = '#111111';
+        this.ctx.fillRect(
+          Math.floor(px - pupilSize / 2),
+          Math.floor(py - pupilSize / 2),
+          pupilSize,
+          pupilSize,
+        );
+      }
+    });
   }
 
   #renderFrame(alpha) {
@@ -754,55 +909,114 @@ class GameClient {
 
     this.#drawTiledBackground(camX, camY, camR, camB);
 
-    const players = [];
+    const snakeTails = new Map();
+    const playerEntities = new Map();
+    const playerPositions = new Map();
+    const labelInfos = [];
     const labeledPlayerIds = new Set();
 
     for (const entity of this.entityMap.values()) {
-      const pos = this.#getRenderPos(entity, alpha);
-      const { size } = pos;
-      this.#forEachTorusCopy(
-        pos.x,
-        pos.y,
-        size,
-        camX,
-        camY,
-        camR,
-        camB,
-        (x, y) => {
+      if (entity.type === 'point') {
+        const pos = this.#getRenderPos(entity, alpha);
+        this.#forEachTorusCopy(pos.x, pos.y, pos.size, camX, camY, camR, camB, (x, y) => {
+          const px = Math.floor(pos.size * 0.2);
+          const innerSize = pos.size - px * 2;
+          this.ctx.fillStyle = this.#darkenColor(entity.color, 0.7);
+          this.ctx.fillRect(x + px, y, innerSize, pos.size);
+          this.ctx.fillRect(x, y + px, pos.size, innerSize);
           this.ctx.fillStyle = entity.color;
-          this.ctx.fillRect(x, y, size, size);
-          if (
-            entity.type === 'player' &&
-            entity.name &&
-            !labeledPlayerIds.has(entity.id)
-          ) {
-            labeledPlayerIds.add(entity.id);
-            players.push({ entity, x, y, size });
-          }
-        },
-      );
+          this.ctx.fillRect(x + px, y + px, innerSize, innerSize);
+          this.ctx.fillStyle = this.#lightenColor(entity.color, 0.4);
+          const hl = Math.max(1, Math.floor(pos.size * 0.25));
+          this.ctx.fillRect(x + px + 1, y + px + 1, hl, hl);
+        });
+        continue;
+      }
+
+      if (entity.type === 'tail') {
+        const pid = entity.playerId;
+        if (!snakeTails.has(pid)) snakeTails.set(pid, []);
+        const pos = this.#getRenderPos(entity, alpha);
+        snakeTails.get(pid).push({ id: entity.id, x: pos.x, y: pos.y, size: pos.size });
+        continue;
+      }
+
+      if (entity.type === 'player') {
+        const pos = this.#getRenderPos(entity, alpha);
+        playerEntities.set(entity.playerId, entity);
+        playerPositions.set(entity.playerId, pos);
+      }
     }
 
-    for (const { entity, x, y, size } of players) {
-      if (entity.name) {
-        const fontSize = Math.max(12, size * 0.8);
-        const nameOffset = size + 8;
+    for (const [playerId, tails] of snakeTails) {
+      tails.sort((a, b) => a.id - b.id);
 
-        this.ctx.save();
-        this.ctx.font = `${fontSize}px Arial`;
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'bottom';
-        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-        this.ctx.lineWidth = 2;
-
-        const textX = x + size / 2;
-        const textY = y - nameOffset;
-
-        this.ctx.strokeText(entity.name, textX, textY);
-        this.ctx.fillText(entity.name, textX, textY);
-        this.ctx.restore();
+      const playerEntity = playerEntities.get(playerId);
+      const headPos = playerPositions.get(playerId);
+      if (!playerEntity || !headPos) {
+        for (const seg of tails) {
+          this.#forEachTorusCopy(seg.x, seg.y, seg.size, camX, camY, camR, camB, (x, y) => {
+            this.ctx.fillStyle = '#888888';
+            this.ctx.fillRect(x, y, seg.size, seg.size);
+          });
+        }
+        continue;
       }
+
+      const color = playerEntity.color;
+      const size = headPos.size;
+      this.#drawSnakeBody(tails, color, size, camX, camY, camR, camB);
+
+      this.#drawSnakeHead(headPos, size, color, playerEntity, headPos.angle, camX, camY, camR, camB);
+
+      if (playerEntity.name && !labeledPlayerIds.has(playerEntity.id)) {
+        labeledPlayerIds.add(playerEntity.id);
+        this.#forEachTorusCopy(headPos.x, headPos.y, size, camX, camY, camR, camB, (x, y) => {
+          if (!labeledPlayerIds.has(playerEntity.id + '_label')) {
+            labeledPlayerIds.add(playerEntity.id + '_label');
+            labelInfos.push({ entity: playerEntity, x, y, size });
+          }
+        });
+      }
+    }
+
+    for (const [playerId, entity] of playerEntities) {
+      if (snakeTails.has(playerId)) continue;
+      const headPos = playerPositions.get(playerId);
+      const color = entity.color;
+      const size = headPos.size;
+
+      this.#drawSnakeHead(headPos, size, color, entity, headPos.angle, camX, camY, camR, camB);
+
+      if (entity.name && !labeledPlayerIds.has(entity.id)) {
+        labeledPlayerIds.add(entity.id);
+        this.#forEachTorusCopy(headPos.x, headPos.y, size, camX, camY, camR, camB, (x, y) => {
+          if (!labeledPlayerIds.has(entity.id + '_label')) {
+            labeledPlayerIds.add(entity.id + '_label');
+            labelInfos.push({ entity, x, y, size });
+          }
+        });
+      }
+    }
+
+    for (const { entity, x, y, size } of labelInfos) {
+      const fontSize = Math.max(12, size * 0.8);
+      const nameOffset = size + 8;
+
+      this.ctx.save();
+      this.ctx.font = `bold ${fontSize}px Arial`;
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'bottom';
+      this.ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+      this.ctx.lineWidth = 3;
+
+      const textX = x + size / 2;
+      const textY = y - nameOffset;
+
+      this.ctx.strokeText(entity.name, textX, textY);
+      this.ctx.fillText(entity.name, textX, textY);
+      this.ctx.restore();
     }
 
     this.ctx.restore();

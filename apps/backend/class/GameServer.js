@@ -303,10 +303,13 @@ class GameServer {
   #killPlayer(player) {
     const spawnPoints = player.points;
     const tailEntities = this.#getTailEntities(player.playerId);
-    const tailToSpawn = tailEntities.slice(0, spawnPoints);
+    const allSegments = [{ x: player.x, y: player.y }, ...tailEntities];
+    const count = allSegments.length;
 
-    for (const tailEntity of tailToSpawn) {
-      this.#generatePoint(tailEntity.x, tailEntity.y);
+    for (let i = 0; i < spawnPoints; i++) {
+      const idx = count > 1 ? Math.round((i / (spawnPoints - 1 || 1)) * (count - 1)) : 0;
+      const seg = allSegments[Math.min(idx, count - 1)];
+      this.#generatePoint(seg.x, seg.y);
     }
 
     this.io.to(player.playerId).emit('ded');
@@ -474,6 +477,7 @@ class GameServer {
       base.p = e.playerId;
       base.n = e.name;
       base.pt = e.points;
+      base.a = Math.round(e.currentAngle * 1000) / 1000;
     } else if (e.type === 'tail') {
       base.p = e.playerId;
     }
@@ -530,16 +534,19 @@ class GameServer {
             }
           } else {
             const rs = Math.round(entity.size);
+            const ra = entity.type === 'player' ? Math.round(entity.currentAngle * 1000) / 1000 : undefined;
             if (
               prev.x !== rx ||
               prev.y !== ry ||
               prev.s !== rs ||
-              (entity.type === 'player' && prev.pt !== entity.points)
+              (entity.type === 'player' && (prev.pt !== entity.points || prev.a !== ra))
             ) {
               const upd = { i: entity.id, x: rx, y: ry };
               if (prev.s !== rs) upd.s = rs;
-              if (entity.type === 'player' && prev.pt !== entity.points)
-                upd.pt = entity.points;
+              if (entity.type === 'player') {
+                if (prev.pt !== entity.points) upd.pt = entity.points;
+                upd.a = ra;
+              }
               updated.push(upd);
             }
           }
@@ -562,12 +569,16 @@ class GameServer {
             pt: entity.points,
           });
         } else {
-          newPrevMap.set(id, {
+          const entry = {
             x: Math.round(entity.x),
             y: Math.round(entity.y),
             s: Math.round(entity.size),
             pt: entity.points,
-          });
+          };
+          if (entity.type === 'player') {
+            entry.a = Math.round(entity.currentAngle * 1000) / 1000;
+          }
+          newPrevMap.set(id, entry);
         }
       }
       this.playerState.set(player.playerId, newPrevMap);
@@ -604,16 +615,19 @@ class GameServer {
             }
           } else {
             const rs = Math.round(entity.size);
+            const ra = entity.type === 'player' ? Math.round(entity.currentAngle * 1000) / 1000 : undefined;
             if (
               prev.x !== rx ||
               prev.y !== ry ||
               prev.s !== rs ||
-              (entity.type === 'player' && prev.pt !== entity.points)
+              (entity.type === 'player' && (prev.pt !== entity.points || prev.a !== ra))
             ) {
               const upd = { i: entity.id, x: rx, y: ry };
               if (prev.s !== rs) upd.s = rs;
-              if (entity.type === 'player' && prev.pt !== entity.points)
-                upd.pt = entity.points;
+              if (entity.type === 'player') {
+                if (prev.pt !== entity.points) upd.pt = entity.points;
+                upd.a = ra;
+              }
               updated.push(upd);
             }
           }
@@ -636,12 +650,16 @@ class GameServer {
             pt: entity.points,
           });
         } else {
-          newPrevMap.set(id, {
+          const entry = {
             x: Math.round(entity.x),
             y: Math.round(entity.y),
             s: Math.round(entity.size),
             pt: entity.points,
-          });
+          };
+          if (entity.type === 'player') {
+            entry.a = Math.round(entity.currentAngle * 1000) / 1000;
+          }
+          newPrevMap.set(id, entry);
         }
       }
       this.spectators.set(socketId, newPrevMap);
