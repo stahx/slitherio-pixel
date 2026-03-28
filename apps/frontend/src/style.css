@@ -525,6 +525,13 @@ body {
   transform: translateY(0);
 }
 
+.version-badge {
+  font-size: 0.75rem;
+  color: var(--color-accent);
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
 #ping-indicator {
   position: fixed;
   bottom: 0.5rem;
