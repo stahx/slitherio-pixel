@@ -33,6 +33,7 @@ class GameServer {
 
     this.grid = new Map();
 
+    this.humanSockets = new Set();
     this.botManager = new BotManager(this);
 
     this.io.on('connection', (socket) => {
@@ -76,7 +77,10 @@ class GameServer {
         this.tails.set(socket.id, []);
         this.playerState.set(socket.id, new Map());
         this.spectators.delete(socket.id);
-        this.botManager.reconcile();
+        if (!this.humanSockets.has(socket.id)) {
+          this.humanSockets.add(socket.id);
+          this.botManager.reconcile();
+        }
         this.#emitUpdate();
       });
 
@@ -99,7 +103,8 @@ class GameServer {
         this.playerState.delete(socket.id);
         this.spectators.delete(socket.id);
         this.removePlayerEntities(socket.id);
-        this.botManager.reconcile();
+        const wasHuman = this.humanSockets.delete(socket.id);
+        if (wasHuman) this.botManager.reconcile();
         this.#emitUpdate();
       });
 
@@ -116,7 +121,6 @@ class GameServer {
   start() {
     this.#mainLoop();
     this.#generatePoints(this.config.POINTS_AMOUNT);
-    this.botManager.reconcile();
 
     this.running = true;
   }

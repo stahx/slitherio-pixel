@@ -21,8 +21,10 @@ export default class BotManager {
   }
 
   reconcile() {
-    const humanCount = this.#humanPlayerCount();
-    const desired = Math.max(0, this.game.config.MIN_PLAYERS - humanCount);
+    const humanCount = this.game.humanSockets.size;
+    const desired = humanCount > 0
+      ? Math.max(0, this.game.config.MIN_PLAYERS - humanCount)
+      : 0;
     const current = this.bots.size;
 
     if (current < desired) {
@@ -73,14 +75,6 @@ export default class BotManager {
 
       player.speed = now < player._botBoostUntil;
     }
-  }
-
-  #humanPlayerCount() {
-    let count = 0;
-    for (const playerId of this.game.players.keys()) {
-      if (!this.isBot(playerId)) count++;
-    }
-    return count;
   }
 
   #spawn() {
