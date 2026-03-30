@@ -78,8 +78,13 @@ class GameServer {
         this.playerState.set(socket.id, new Map());
         this.spectators.delete(socket.id);
         if (!this.humanSockets.has(socket.id)) {
+          const wasEmpty = this.humanSockets.size === 0;
           this.humanSockets.add(socket.id);
-          this.botManager.reconcile();
+          if (wasEmpty) {
+            this.#populateWorld();
+          } else {
+            this.botManager.reconcile();
+          }
         }
         this.#emitUpdate();
       });
@@ -104,7 +109,13 @@ class GameServer {
         this.spectators.delete(socket.id);
         this.removePlayerEntities(socket.id);
         const wasHuman = this.humanSockets.delete(socket.id);
-        if (wasHuman) this.botManager.reconcile();
+        if (wasHuman) {
+          if (this.humanSockets.size === 0) {
+            this.#clearWorld();
+          } else {
+            this.botManager.reconcile();
+          }
+        }
         this.#emitUpdate();
       });
 
@@ -120,9 +131,22 @@ class GameServer {
 
   start() {
     this.#mainLoop();
-    this.#generatePoints(this.config.POINTS_AMOUNT);
-
     this.running = true;
+  }
+
+  #clearWorld() {
+    for (const botId of [...this.botManager.bots]) {
+      this.botManager.remove(botId);
+    }
+    for (const [id] of this.points) {
+      this.allEntities.delete(id);
+    }
+    this.points.clear();
+  }
+
+  #populateWorld() {
+    this.#generatePoints(this.config.POINTS_AMOUNT);
+    this.botManager.reconcile();
   }
 
   #mainLoop() {
