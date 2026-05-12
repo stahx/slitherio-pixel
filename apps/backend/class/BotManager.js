@@ -60,12 +60,12 @@ export default class BotManager {
         continue;
       }
 
-      player._botRetargetAt = now + 400 + Math.random() * 800;
+      player._botRetargetAt = now + 800 + Math.random() * 1200;
 
       const pcx = player.x + player.size / 2;
       const pcy = player.y + player.size / 2;
 
-      const danger = this.#scanDanger(player, pcx, pcy);
+      const danger = Math.random() < 0.3 ? null : this.#scanDanger(player, pcx, pcy);
 
       if (danger) {
         this.#evade(player, pcx, pcy, danger, now);
@@ -106,7 +106,7 @@ export default class BotManager {
   }
 
   #scanDanger(player, pcx, pcy) {
-    const dangerRadius = player.size + 80;
+    const dangerRadius = player.size + 40;
     const nearby = this.game.getNearbyCellsTorus(player.x, player.y, dangerRadius);
 
     let closestDist = Infinity;
@@ -144,26 +144,19 @@ export default class BotManager {
     player._botWanderAngle = escapeAngle;
     player.mouseX = pcx + Math.cos(escapeAngle) * 250;
     player.mouseY = pcy + Math.sin(escapeAngle) * 250;
-    player._botBoostUntil = now + 400 + Math.random() * 600;
+    player._botBoostUntil = 0;
   }
 
   #seek(player, pcx, pcy, W, H, now) {
-    let bestPoint = null;
-    let bestScore = -Infinity;
-
+    const candidates = [];
     for (const point of this.game.points.values()) {
       const distSq = this.game.torusDistSq(pcx, pcy, point.x, point.y);
-      if (distSq > 500 * 500) continue;
-
-      const value = Math.max(1, Math.floor(point.size / 8));
-      const dist = Math.sqrt(distSq);
-      const score = value / (dist + 1);
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestPoint = point;
-      }
+      if (distSq > 300 * 300) continue;
+      candidates.push(point);
     }
+    const bestPoint = candidates.length > 0
+      ? candidates[Math.floor(Math.random() * candidates.length)]
+      : null;
 
     if (bestPoint) {
       let dx = bestPoint.x - pcx;

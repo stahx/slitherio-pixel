@@ -216,7 +216,7 @@ class GameServer {
             if (tailArr && tailArr.length > 0) {
               const shed = tailArr.shift();
               this.allEntities.delete(shed.id);
-              this.#generatePoint(shed.x, shed.y);
+              this.#generatePoint(shed.x, shed.y, 8);
             }
           }
         } else {
@@ -461,12 +461,12 @@ class GameServer {
     }
   }
 
-  #generatePoint(x, y) {
+  #generatePoint(x, y, fixedSize) {
     const position =
       x && y
         ? { x, y }
         : getRandomPosition(this.config.MAP_WIDTH, this.config.MAP_HEIGHT);
-    const size = getRandomSize(8, 25);
+    const size = fixedSize != null ? fixedSize : getRandomSize(8, 25);
     const pointEntity = new Point(position.x, position.y, {
       size,
       color: getRandomColor(),
