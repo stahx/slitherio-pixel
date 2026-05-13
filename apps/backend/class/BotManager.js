@@ -60,15 +60,18 @@ export default class BotManager {
         continue;
       }
 
-      player._botRetargetAt = now + 800 + Math.random() * 1200;
+      player._botRetargetAt = now + 1500 + Math.random() * 2000;
 
       const pcx = player.x + player.size / 2;
       const pcy = player.y + player.size / 2;
 
-      const danger = Math.random() < 0.3 ? null : this.#scanDanger(player, pcx, pcy);
+      const danger = Math.random() < 0.6 ? null : this.#scanDanger(player, pcx, pcy);
+      const wanderRoll = Math.random() < 0.4;
 
       if (danger) {
         this.#evade(player, pcx, pcy, danger, now);
+      } else if (wanderRoll) {
+        this.#wander(player, pcx, pcy);
       } else {
         this.#seek(player, pcx, pcy, W, H, now);
       }
@@ -106,7 +109,7 @@ export default class BotManager {
   }
 
   #scanDanger(player, pcx, pcy) {
-    const dangerRadius = player.size + 40;
+    const dangerRadius = player.size + 15;
     const nearby = this.game.getNearbyCellsTorus(player.x, player.y, dangerRadius);
 
     let closestDist = Infinity;
@@ -138,7 +141,7 @@ export default class BotManager {
     else if (dy < -H / 2) dy += H;
 
     const awayAngle = Math.atan2(-dy, -dx);
-    const jitter = (Math.random() - 0.5) * 0.6;
+    const jitter = (Math.random() - 0.5) * 1.8;
     const escapeAngle = awayAngle + jitter;
 
     player._botWanderAngle = escapeAngle;
@@ -151,7 +154,7 @@ export default class BotManager {
     const candidates = [];
     for (const point of this.game.points.values()) {
       const distSq = this.game.torusDistSq(pcx, pcy, point.x, point.y);
-      if (distSq > 300 * 300) continue;
+      if (distSq > 180 * 180) continue;
       candidates.push(point);
     }
     const bestPoint = candidates.length > 0
@@ -169,10 +172,14 @@ export default class BotManager {
       player.mouseY = pcy + dy;
       player._botBoostUntil = 0;
     } else {
-      player._botWanderAngle += (Math.random() - 0.5) * 0.6;
-      player.mouseX = pcx + Math.cos(player._botWanderAngle) * 200;
-      player.mouseY = pcy + Math.sin(player._botWanderAngle) * 200;
-      player._botBoostUntil = 0;
+      this.#wander(player, pcx, pcy);
     }
+  }
+
+  #wander(player, pcx, pcy) {
+    player._botWanderAngle += (Math.random() - 0.5) * 1.4;
+    player.mouseX = pcx + Math.cos(player._botWanderAngle) * 200;
+    player.mouseY = pcy + Math.sin(player._botWanderAngle) * 200;
+    player._botBoostUntil = 0;
   }
 }
