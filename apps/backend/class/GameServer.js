@@ -233,19 +233,8 @@ class GameServer {
         player.x += moveX;
         player.y += moveY;
 
-        if (player.x + player.size >= this.config.MAP_WIDTH) {
-          player.x = 0;
-        }
-        if (player.x < 0) {
-          player.x = this.config.MAP_WIDTH - player.size;
-        }
-
-        if (player.y + player.size >= this.config.MAP_HEIGHT) {
-          player.y = 0;
-        }
-        if (player.y < 0) {
-          player.y = this.config.MAP_HEIGHT - player.size;
-        }
+        player.x = ((player.x % MW) + MW) % MW;
+        player.y = ((player.y % MH) + MH) % MH;
 
         player.mouseX += moveX;
         player.mouseY += moveY;
